@@ -40,6 +40,10 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".bridge.NotifyReplyReceiver"
+            android:exported="false" />
+
         <service
             android:name=".bridge.BridgeService"
             android:exported="false"

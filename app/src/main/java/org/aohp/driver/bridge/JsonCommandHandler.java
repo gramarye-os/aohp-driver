@@ -193,6 +193,17 @@ public final class JsonCommandHandler {
                 return sysClipboard(p);
             case "sys.notifications":
                 return sysNotifications(p);
+            case "sys.notify":
+                return completedJson(() -> sysNotify(p));
+            case "sys.notify_replies":
+                return CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return NotifyReplies.drain(p.optLong("after", 0),
+                                Math.min(p.optLong("waitMs", 0), 120_000));
+                    } catch (JSONException e) {
+                        return errObj("notify_replies", e.getMessage());
+                    }
+                });
             case "sys.device_info":
                 return completedJson(() -> crToJson(mShell.getDeviceInfoSync()));
             case "sys.battery":
@@ -1522,6 +1533,108 @@ public final class JsonCommandHandler {
                         ? mShell.expandNotificationPanel()
                         : mShell.collapseNotificationPanel();
         return f.thenApply(this::crToJson);
+    }
+
+    /**
+     * sys.notify — post (or cancel) an ordinary alerting notification from the Driver on behalf of an
+     * env. This is the "job done → shade/wrist" primitive: the Driver is a platform app that already
+     * holds POST_NOTIFICATIONS, so a unit in a container can reach every NotificationListener on the
+     * phone (Gadgetbridge, Wear companions) without any permission of its own.
+     *
+     * params: op ("post"|"cancel", default post), title, text (required for post), channel (id,
+     * default "aohp_agent"), channelName, importance ("low"|"default"|"high", default high),
+     * tag (default "aohp"), id (int, default: hash of tag+title), category (default "msg"),
+     * ongoing (bool), subText. reply (bool) adds an inline RemoteInput action; choices (array of
+     * strings) are the canned replies wearables offer; replyLabel (default "Reply");
+     * correlationId / env are echoed back with the reply. Dismissals are reported too.
+     * Replies and dismissals are drained with sys.notify_replies {after, waitMs} (long-poll).
+     * Returns {ok, id, tag, channel}.
+     */
+    private JSONObject sysNotify(JSONObject p) {
+        String op = p.optString("op", "post");
+        String channelId = p.optString("channel", "aohp_agent");
+        String tag = p.optString("tag", "aohp");
+        String title = p.optString("title", "");
+        int id = p.has("id") ? p.optInt("id") : Math.abs((tag + "\u0000" + title).hashCode());
+        android.app.NotificationManager nm =
+                mContext.getSystemService(android.app.NotificationManager.class);
+        if (nm == null) return errObj("notify", "no NotificationManager");
+        try {
+            if ("cancel".equals(op)) {
+                nm.cancel(tag, id);
+                JSONObject o = new JSONObject();
+                o.put("ok", true).put("cancelled", true).put("id", id).put("tag", tag);
+                return o;
+            }
+            String text = p.optString("text", "");
+            if (text.isEmpty() && title.isEmpty()) return errObj("notify", "title or text required");
+            String imp = p.optString("importance", "high");
+            int importance = "low".equals(imp) ? android.app.NotificationManager.IMPORTANCE_LOW
+                    : "default".equals(imp) ? android.app.NotificationManager.IMPORTANCE_DEFAULT
+                    : android.app.NotificationManager.IMPORTANCE_HIGH;
+            android.app.NotificationChannel ch = nm.getNotificationChannel(channelId);
+            if (ch == null) {
+                ch = new android.app.NotificationChannel(
+                        channelId, p.optString("channelName", "AOHP agent: " + channelId), importance);
+                ch.setDescription("Notifications posted by agent environments via sys.notify");
+                nm.createNotificationChannel(ch);
+            }
+            android.app.Notification.Builder b = new android.app.Notification.Builder(mContext, channelId)
+                    .setSmallIcon(android.R.drawable.stat_notify_chat)
+                    .setContentTitle(title.isEmpty() ? "AOHP" : title)
+                    .setContentText(text)
+                    .setStyle(new android.app.Notification.BigTextStyle().bigText(text))
+                    .setCategory(p.optString("category", android.app.Notification.CATEGORY_MESSAGE))
+                    .setShowWhen(true)
+                    .setWhen(System.currentTimeMillis())
+                    .setAutoCancel(!p.optBoolean("ongoing", false))
+                    .setOngoing(p.optBoolean("ongoing", false));
+            if (p.has("subText")) b.setSubText(p.optString("subText"));
+            String corr = p.optString("correlationId", "");
+            String env = p.optString("env", "");
+            android.content.Intent base = new android.content.Intent(mContext, NotifyReplyReceiver.class)
+                    .putExtra(NotifyReplyReceiver.EXTRA_TAG, tag)
+                    .putExtra(NotifyReplyReceiver.EXTRA_ID, id)
+                    .putExtra(NotifyReplyReceiver.EXTRA_CORRELATION, corr)
+                    .putExtra(NotifyReplyReceiver.EXTRA_ENV, env)
+                    .putExtra(NotifyReplyReceiver.EXTRA_CHANNEL, channelId)
+                    .putExtra(NotifyReplyReceiver.EXTRA_TITLE, title);
+            int reqBase = (int) ((tag.hashCode() * 31L + id) & 0x7fffffff);
+            android.app.PendingIntent del = android.app.PendingIntent.getBroadcast(mContext, reqBase,
+                    new android.content.Intent(base).setAction(NotifyReplyReceiver.ACTION_DISMISS),
+                    android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            b.setDeleteIntent(del);
+            if (p.optBoolean("reply", false)) {
+                android.app.RemoteInput.Builder ri = new android.app.RemoteInput.Builder(NotifyReplyReceiver.KEY_TEXT)
+                        .setLabel(p.optString("replyLabel", "Reply"));
+                JSONArray choices = p.optJSONArray("choices");
+                if (choices != null && choices.length() > 0) {
+                    CharSequence[] cs = new CharSequence[choices.length()];
+                    for (int i = 0; i < choices.length(); i++) cs[i] = choices.optString(i);
+                    ri.setChoices(cs);
+                    ri.setAllowFreeFormInput(p.optBoolean("freeForm", true));
+                }
+                // FLAG_MUTABLE is mandatory: the system appends the RemoteInput results bundle.
+                android.app.PendingIntent rep = android.app.PendingIntent.getBroadcast(mContext, reqBase ^ 0x5a5a,
+                        new android.content.Intent(base).setAction(NotifyReplyReceiver.ACTION_REPLY),
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_MUTABLE);
+                b.addAction(new android.app.Notification.Action.Builder(
+                        android.graphics.drawable.Icon.createWithResource(mContext, android.R.drawable.ic_menu_send),
+                        p.optString("replyLabel", "Reply"), rep)
+                        .addRemoteInput(ri.build())
+                        .setAllowGeneratedReplies(false)
+                        .setSemanticAction(android.app.Notification.Action.SEMANTIC_ACTION_REPLY)
+                        .build());
+            }
+            nm.notify(tag, id, b.build());
+            JSONObject o = new JSONObject();
+            o.put("ok", true).put("id", id).put("tag", tag).put("channel", channelId);
+            return o;
+        } catch (JSONException e) {
+            return errObj("notify", e.getMessage());
+        } catch (RuntimeException e) {
+            return errObj("notify", e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     private JSONObject eventRegister(JSONObject p) {
