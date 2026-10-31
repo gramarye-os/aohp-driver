@@ -147,6 +147,15 @@ public final class AohpContainerClient {
                 r.error = "Container service not available";
                 return r;
             }
+            // The daemon protocol is line based (EXEC <name> <timeout> <command>\n, one response line per
+            // request): a command containing a newline is read as several requests, the daemon answers
+            // each one on a socket system_server has already closed, takes SIGPIPE and init kills it -
+            // and every unit of every env with it (dodge 2026-10-31). Ship multi-line scripts as base64.
+            if (command.indexOf('\n') >= 0 || command.indexOf('\r') >= 0) {
+                String b64 = android.util.Base64.encodeToString(
+                        command.getBytes(java.nio.charset.StandardCharsets.UTF_8), android.util.Base64.NO_WRAP);
+                command = "echo " + b64 + " | base64 -d | sh";
+            }
             String json = svc.execSync(containerName, command, timeoutMs);
             JSONObject obj = new JSONObject(json);
             r.exitCode = obj.optInt("exitCode", -1);

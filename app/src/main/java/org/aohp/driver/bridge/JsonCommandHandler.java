@@ -76,6 +76,7 @@ public final class JsonCommandHandler {
     private final AohpEventStreamClient mEventStream;
     private final AohpSecurityBridgeClient mSecurityBridge;
     private final AppFunctionsClient mAppFn;
+    private final LlmManager mLlm;
 
     public JsonCommandHandler(Context context) {
         mContext = context.getApplicationContext();
@@ -88,6 +89,7 @@ public final class JsonCommandHandler {
         mEventStream = new AohpEventStreamClient(mContext);
         mSecurityBridge = new AohpSecurityBridgeClient();
         mAppFn = new AppFunctionsClient(mContext);
+        mLlm = new LlmManager(mContext, mContainer);
     }
 
     public void dispatch(WebSocket conn, String message) {
@@ -254,6 +256,22 @@ public final class JsonCommandHandler {
                 return completedJson(() -> sandboxDiag(p));
             case "sandbox.unit":
                 return completedJson(() -> sandboxUnit(p, p.optString("op", "")));
+            case "llm.info":
+                return completedJson(() -> mLlm.info(p));
+            case "llm.models":
+                return completedJson(() -> mLlm.models(p));
+            case "llm.configure":
+                return completedJson(() -> mLlm.configure(p));
+            case "llm.start":
+                return completedJson(() -> mLlm.control(p, "start"));
+            case "llm.stop":
+                return completedJson(() -> mLlm.control(p, "stop"));
+            case "llm.restart":
+                return completedJson(() -> mLlm.control(p, "restart"));
+            case "llm.status":
+                return completedJson(() -> mLlm.status(p));
+            case "llm.log":
+                return completedJson(() -> mLlm.log(p));
             case "secret.get":
                 return completedJson(() -> secretGet(p));
             case "secret.set":

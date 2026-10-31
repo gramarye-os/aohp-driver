@@ -12,8 +12,9 @@ android {
         applicationId = "org.aohp.driver"
         minSdk = 34
         targetSdk = 36
-        versionCode = 8
-        versionName = "0.7.1"
+        versionCode = 9
+        versionName = "0.8.0"
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     buildFeatures {
@@ -37,6 +38,10 @@ android {
     }
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        // app/src/main/jniLibs/arm64-v8a carries llama-server (as libllama-server.so) and its ggml
+        // backends (CPU + Hexagon NPU skels). They are executed by aohp-containerd as a HostExec= unit,
+        // not loaded by the app, so they must be real files on disk: legacy packaging + extractNativeLibs.
+        jniLibs.useLegacyPackaging = true
     }
 }
 
