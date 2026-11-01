@@ -67,4 +67,6 @@ interface IAohpContainer {
      * Generic on purpose so new ops need no AIDL change; appended last to keep transaction codes.
      */
     String unitControl(String containerName, String op, String jsonArgs);
+    /** Cpuset of env processes: "performance" (top-app, all cores) or "saver" (system-background). Empty mode = query. Returns {"mode":...}. */
+    String powerMode(String mode);
 }

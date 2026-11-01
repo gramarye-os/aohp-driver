@@ -25,6 +25,11 @@ case "$BUILD_TYPE" in
 esac
 [ -f "$SRC" ] || { echo "build produced no $SRC"; exit 1; }
 cp -f "$SRC" "$DEST/AOHPDriver.apk"
+# The llama-server runtime (jniLibs) also goes to the image as plain files: PackageManager does not
+# extract a /system priv-app's native libs, and the daemon needs real files to stage from
+# (/system/etc/aohp/llm via PRODUCT_COPY_FILES in vendor/aohp/aohp.mk; LlmManager falls back to it).
+mkdir -p "$DEST/llm" && rm -f "$DEST/llm"/*.so && cp -f app/src/main/jniLibs/arm64-v8a/*.so "$DEST/llm/"
+echo "runtime: $(ls "$DEST/llm" | wc -l) libs -> $DEST/llm"
 ls -la "$DEST/AOHPDriver.apk"
 "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$DEST/AOHPDriver.apk" | grep -E "^package:|^launchable-activity" || true
 echo "updated $DEST/AOHPDriver.apk ($BUILD_TYPE). Rebuild the image: lunch aosp_arm64_aohp-trunk_staging-userdebug && m -j10 systemimage"

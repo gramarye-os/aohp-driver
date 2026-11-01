@@ -278,6 +278,18 @@ public final class AohpContainerClient {
         }
     }
 
+    /** "performance" | "saver" | "" (query) -> {"mode":...} or {"error":...}; null when the service is unavailable. */
+    public String powerMode(String mode) {
+        try {
+            IAohpContainer svc = getService();
+            if (svc == null) return null;
+            return svc.powerMode(mode == null ? "" : mode);
+        } catch (RemoteException e) {
+            Log.e(TAG, "powerMode failed", e);
+            return null;
+        }
+    }
+
     public String diagnose(String containerName) {
         try {
             IAohpContainer svc = getService();

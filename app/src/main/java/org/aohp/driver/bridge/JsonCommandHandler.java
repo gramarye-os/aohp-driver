@@ -77,6 +77,7 @@ public final class JsonCommandHandler {
     private final AohpSecurityBridgeClient mSecurityBridge;
     private final AppFunctionsClient mAppFn;
     private final LlmManager mLlm;
+    private final PowerModeController mPower;
 
     public JsonCommandHandler(Context context) {
         mContext = context.getApplicationContext();
@@ -90,6 +91,8 @@ public final class JsonCommandHandler {
         mSecurityBridge = new AohpSecurityBridgeClient();
         mAppFn = new AppFunctionsClient(mContext);
         mLlm = new LlmManager(mContext, mContainer);
+        mPower = new PowerModeController(mContext, mContainer);
+        mPower.start();  // applies auto|performance|saver to the daemon now and on Battery Saver changes
     }
 
     public void dispatch(WebSocket conn, String message) {
@@ -256,6 +259,8 @@ public final class JsonCommandHandler {
                 return completedJson(() -> sandboxDiag(p));
             case "sandbox.unit":
                 return completedJson(() -> sandboxUnit(p, p.optString("op", "")));
+            case "sandbox.power":
+                return completedJson(() -> mPower.rpc(p));
             case "llm.info":
                 return completedJson(() -> mLlm.info(p));
             case "llm.models":
