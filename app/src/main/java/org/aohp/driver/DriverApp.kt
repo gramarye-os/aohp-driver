@@ -23,7 +23,7 @@ class Settings(private val ctx: Context) {
     companion object {
         val SELECTED_ENV = stringPreferencesKey("selected_env")
         val BOOTSTRAP_REPO = stringPreferencesKey("bootstrap_repo")
-        const val DEFAULT_REPO = "injinj/aohp-config-chris"
+        const val DEFAULT_REPO = "gramarye-os/aohp-config-chris"
         val AUTOSTART_ENVS = stringSetPreferencesKey("autostart_envs")
         /** 0.5.0: autostart is ON by default; this set holds the envs the user switched OFF. */
         val AUTOSTART_OFF_ENVS = stringSetPreferencesKey("autostart_off_envs")

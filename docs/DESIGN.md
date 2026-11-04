@@ -39,7 +39,7 @@ stock AOHPAgentDriver keeps doing that for the agent inside the container).
   directory — there is no listTemplates AIDL). The only template on the device
   is `debian` (605 MB). Our Debian env is named `oc` (template `debian`,
   recorded in `.template`), harness bootstrap = `aohp-bootstrap <user>/<repo>`
-  from https://github.com/injinj/aohp-agents ; secrets via `aohp-secrets`
+  from https://github.com/gramarye-os/aohp-agents ; secrets via `aohp-secrets`
   (age | keystore | paste).
 - The stock app's service id for the gateway is `openclaw-gateway`, command
   `openclaw gateway` (our launcher wrapper handles --jitless + secrets).
@@ -136,7 +136,7 @@ of 127.0.0.1:18789 → up/down + version from /health if present), buttons
 Start/Stop/Restart (startService "openclaw-gateway" "openclaw gateway"), Logs
 (serviceLog tail, auto-refresh), "Bootstrap…" (execSync of
 `aohp-bootstrap <repo>` with the repo entered in a dialog; prefill
-`injinj/aohp-config-chris`), "Secrets" (list names only via
+`gramarye-os/aohp-config-chris`), "Secrets" (list names only via
 `aohp-secrets list` if present). Nothing here stores secret values in the app.
 
 ### Runtime screen
@@ -320,7 +320,7 @@ Harness top bar.
   command string. For OpenAI the primary model in `openclaw.json` is
   switched with a `node -e` JSON edit.
 - **Credentials / Git**: `aohp-bootstrap <user>/<repo>` (fetched from
-  `injinj/aohp-agents` if the env lacks it). Passphrase and GitHub token are
+  `gramarye-os/aohp-agents` if the env lacks it). Passphrase and GitHub token are
   parked in the Keystore as `AOHP_SETUP_*`, pulled by the env with
   `aohp secret get` into `umask 077` files, passed as `--passphrase-file` /
   `--token-file`, and both the files and the temp secrets are deleted after.

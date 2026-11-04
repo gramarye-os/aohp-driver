@@ -72,7 +72,7 @@ class SetupViewModel(app: Application) : AndroidViewModel(app) {
         const val TAG = "AohpDriver"
         private const val PP_SECRET = "AOHP_SETUP_AGE_PASSPHRASE"
         private const val GH_SECRET = "AOHP_SETUP_GH_TOKEN"
-        private const val BOOTSTRAP_URL = "https://raw.githubusercontent.com/injinj/aohp-agents/main/bootstrap.sh"
+        private const val BOOTSTRAP_URL = "https://raw.githubusercontent.com/gramarye-os/aohp-agents/main/bootstrap.sh"
     }
 
     init {
