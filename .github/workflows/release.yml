@@ -66,7 +66,7 @@ jobs:
             AOHP Driver ${{ github.ref_name }} — unsigned release APK (`assembleRelease`, not minified), built by GitHub Actions
             from this tag. It is the prebuilt consumed by `packages/apps/AOHPDriver/Android.bp` (`android_app_import`,
             `certificate: "platform"`): Soong re-signs it with the ROM's platform key, so it is **not installable as-is** on
-            a device — ship it in a system image (LineageOS 23.2 + AOHP: https://github.com/injinj/aohp-lineage) or sign it
+            a device — ship it in a system image (LineageOS 23.2 + AOHP: https://github.com/gramarye-os/aohp-lineage) or sign it
             with a tree's platform key (`scripts/sign-platform.sh`).
 
             Verify: `sha256sum -c AOHPDriver.apk.sha256`
