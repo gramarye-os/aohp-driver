@@ -323,7 +323,9 @@ collapse to one network refresh.
 5. **Central refresh** with the single-refresher lock and rotated-token persistence.
 6. **Consumer shims:** OpenClaw launcher + provider-on-401; search app call sites. Every
    consumer MUST satisfy the §0 portability contract: broker first, own-credential fallback
-   second, so the app still runs off AOHP.
+   second, so the app still runs off AOHP. Reference clients implementing this live in
+   `clients/` (`cred-get.js` AF_UNIX client; `aohp-secrets-oauth.sh` launcher shim; `README.md`
+   protocol + the §0 rule). New consumers copy these rather than re-deriving the protocol.
 7. Restart the gateway after a credential change via the existing `unitControl` path on
    `openclaw-gateway` (already implemented).
 
