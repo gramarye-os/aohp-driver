@@ -12,6 +12,49 @@ place, with per-app authorization enforced at the bridge.
 
 ---
 
+## 0. Portability contract (binding design principle)
+
+**The broker is a capability, not a cage.** This is a hard design rule, not an aspiration: a
+consumer app that uses the broker on an AOHP device MUST still be able to run as an ordinary
+app off AOHP. If following this document ever makes an app non-portable, the document is wrong,
+not the app.
+
+Three rules enforce this. Every `cred.*` consumer and every future extension of this design is
+held to them:
+
+1. **Graceful degradation (optional broker).** An app tries the broker first and falls back to
+   its own credential source (own Keystore `EncryptedSharedPreferences`, a pasted key, an env
+   var) when the bridge is absent or returns `not_configured`/`denied`. The test every consumer
+   must pass: *with a small adapter, this app runs on a stock Pixel with a pasted key, and
+   lights up with shared login on an AOHP device.* An app that is dead without the bridge is a
+   bug against this contract.
+
+2. **Standard-shaped contract.** `cred.getToken` returns a provider-agnostic
+   `header_name`/`header_value` so the app's actual provider calls are plain HTTPS, identical on
+   or off AOHP. Only credential *acquisition* is AOHP-specific, and it is modeled on OAuth token
+   exchange / OS credential services (AccountManager, Keychain, Secret Service) so porting off
+   AOHP is a thin adapter, never a rewrite. Do not invent bespoke wire formats that leak AOHP
+   assumptions into the app's request path.
+
+3. **Narrow scope — resist bridge creep.** The lock-in surface is not any single service; it is
+   the *number* of unrelated capabilities an app must pull from the bridge. An app bound to the
+   bridge only for credentials is lightly coupled and portable; an app that also pulls its model,
+   its search, and its UI from the bridge cannot leave the device. Keep the credential broker to
+   credentials. Adding more to the bridge is a decision to be justified against portability, not
+   a default. The litmus test: *could this app exist, in degraded form, on a non-AOHP phone?* If
+   a new bridge dependency makes the answer "no", it is the wrong seam.
+
+**Why this is a contract and not a preference.** AOHP's thesis is the phone as an open Linux
+*node* that produces local tooling — the opposite of an app that can only consume one vendor's
+integrations. A credential fabric that apps cannot function without would recreate exactly that
+vendor-capture pattern, with AOHP as the new vendor. The binding is acceptable only while AOHP
+stays an open, documented, reimplementable platform (the Driver is open; the `cred.*` contract
+is public; another implementation could serve it) AND apps remain able to live without it. Lose
+either property and the broker becomes a trap. Future changes that strengthen binding at the cost
+of portability must be rejected or justified explicitly against this section.
+
+---
+
 ## 1. Landscape: API keys vs OAuth
 
 The two credential styles behave differently, and the broker must support both because
@@ -278,7 +321,9 @@ collapse to one network refresh.
 4. **OAuth acquisition** (AppAuth + PKCE + Custom Tab) wired into the Setup wizard's
    Credentials step and a Harness-tab "Set / replace credential" entry.
 5. **Central refresh** with the single-refresher lock and rotated-token persistence.
-6. **Consumer shims:** OpenClaw launcher + provider-on-401; search app call sites.
+6. **Consumer shims:** OpenClaw launcher + provider-on-401; search app call sites. Every
+   consumer MUST satisfy the §0 portability contract: broker first, own-credential fallback
+   second, so the app still runs off AOHP.
 7. Restart the gateway after a credential change via the existing `unitControl` path on
    `openclaw-gateway` (already implemented).
 
