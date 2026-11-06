@@ -78,6 +78,7 @@ public final class JsonCommandHandler {
     private final AppFunctionsClient mAppFn;
     private final LlmManager mLlm;
     private final PowerModeController mPower;
+    private final CredentialBroker mCredBroker;
 
     public JsonCommandHandler(Context context) {
         mContext = context.getApplicationContext();
@@ -93,6 +94,8 @@ public final class JsonCommandHandler {
         mLlm = new LlmManager(mContext, mContainer);
         mPower = new PowerModeController(mContext, mContainer);
         mPower.start();  // applies auto|performance|saver to the daemon now and on Battery Saver changes
+        CredentialAcl credAcl = new CredentialAcl(mSecrets);
+        mCredBroker = new CredentialBroker(mContext, mSecrets, credAcl, new CredentialAuditLog());
     }
 
     public void dispatch(WebSocket conn, String message) {
@@ -277,6 +280,16 @@ public final class JsonCommandHandler {
                 return completedJson(() -> mLlm.status(p));
             case "llm.log":
                 return completedJson(() -> mLlm.log(p));
+            case "cred.getToken":
+                return completedJson(() -> credGetToken(p));
+            case "cred.configure":
+                return completedJson(() -> credConfigure(p));
+            case "cred.status":
+                return completedJson(() -> credStatus(p));
+            case "cred.revoke":
+                return completedJson(() -> credRevoke(p));
+            case "cred.list":
+                return completedJson(() -> credList(p));
             case "secret.get":
                 return completedJson(() -> secretGet(p));
             case "secret.set":
@@ -1824,6 +1837,64 @@ public final class JsonCommandHandler {
         int to = p.optInt("timeoutMs", 30000);
         ShellExecutor.CommandResult r = mContainer.execSync(name, cmd, to);
         return crToJson(r);
+    }
+
+    // ---- credential broker (cred.*): typed API-key/OAuth credentials, caller-authorized ----
+    // See docs/CREDENTIALS.md. Caller identity on the TCP WebSocket transport comes from a
+    // capability token in params (absent => anonymous => deny, fail-closed). The AF_UNIX control
+    // channel with SO_PEERCRED is the follow-up transport that yields a kernel-verified uid.
+
+    private CallerIdentity caller(JSONObject p) {
+        String cap = p.optString("cap_token", "");
+        if (cap.isEmpty()) return CallerIdentity.anonymous();
+        String principal = CapabilityToken.verify(mContext, mSecrets, cap);
+        return principal == null ? CallerIdentity.anonymous() : CallerIdentity.fromCapability(principal);
+    }
+
+    private JSONObject credGetToken(JSONObject p) throws JSONException {
+        String provider = p.optString("provider", "");
+        if (provider.isEmpty()) return errObj("bad_args", "provider required");
+        return mCredBroker.getToken(caller(p), provider, p.optString("purpose", null));
+    }
+
+    private JSONObject credConfigure(JSONObject p) throws JSONException {
+        String provider = p.optString("provider", "");
+        String kind = p.optString("kind", "");
+        if (provider.isEmpty() || kind.isEmpty()) return errObj("bad_args", "provider and kind required");
+        CallerIdentity c = caller(p);
+        if ("apikey".equals(kind)) {
+            if (!p.has("apikey")) return errObj("bad_args", "apikey required");
+            return mCredBroker.configureApiKey(c, provider, p.getString("apikey"));
+        }
+        if ("oauth".equals(kind)) {
+            // The Driver's AppAuth flow populates these fields after an on-device login.
+            if (!p.has("refresh_token") || !p.has("token_url") || !p.has("client_id")) {
+                return errObj("bad_args", "oauth requires refresh_token, token_url, client_id");
+            }
+            CredentialRecord rec = CredentialRecord.oauth(provider,
+                    p.getString("refresh_token"), p.optString("access_token", null),
+                    p.optLong("expires_at", 0), p.getString("token_url"),
+                    p.getString("client_id"), p.optString("scopes", null),
+                    p.optString("account_label", null));
+            return mCredBroker.configureOauth(c, rec);
+        }
+        return errObj("bad_args", "unknown kind " + kind);
+    }
+
+    private JSONObject credStatus(JSONObject p) throws JSONException {
+        String provider = p.optString("provider", "");
+        if (provider.isEmpty()) return errObj("bad_args", "provider required");
+        return mCredBroker.status(caller(p), provider);
+    }
+
+    private JSONObject credRevoke(JSONObject p) throws JSONException {
+        String provider = p.optString("provider", "");
+        if (provider.isEmpty()) return errObj("bad_args", "provider required");
+        return mCredBroker.revoke(caller(p), provider);
+    }
+
+    private JSONObject credList(JSONObject p) throws JSONException {
+        return mCredBroker.list(caller(p));
     }
 
     // ---- secrets (Android Keystore-backed store for provider keys used inside sandboxes) ----
