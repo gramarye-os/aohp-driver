@@ -10,6 +10,8 @@ android {
 
     defaultConfig {
         applicationId = "org.aohp.driver"
+        // AppAuth OAuth redirect: aohp://oauth/<provider> is captured by RedirectUriReceiverActivity.
+        manifestPlaceholders["appAuthRedirectScheme"] = "aohp"
         minSdk = 34
         targetSdk = 36
         versionCode = 9
@@ -62,4 +64,5 @@ dependencies {
     // agent bridge (ported from the stock AOHPAgentDriver): ws server + Keystore-backed secrets
     implementation(libs.java.websocket)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.appauth)
 }

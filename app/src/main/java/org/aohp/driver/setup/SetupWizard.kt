@@ -1,5 +1,8 @@
 package org.aohp.driver.setup
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -97,6 +100,14 @@ private fun CredStep(st: SetupState, vm: SetupViewModel) {
         OutlinedTextField(st.apiKey, vm::setApiKey, label = { Text(st.provider.secretName) }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = idle,
             visualTransformation = PasswordVisualTransformation())
     }
+    Option(st.credMode == CredMode.Oauth, "Sign in (OAuth)", "On-device login; a refresh token is kept in the Keystore and the agent bridge brokers short-lived tokens.", idle) { vm.setCredMode(CredMode.Oauth) }
+    if (st.credMode == CredMode.Oauth) Column(Modifier.padding(start = 36.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Picker("provider", st.provider.label, Provider.entries.map { it.label }, idle) { l -> vm.setProvider(Provider.entries.first { it.label == l }) }
+        val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+            res.data?.let { vm.completeOauth(it) }
+        }
+        OutlinedButton(onClick = { vm.buildOauthIntent()?.let { launcher.launch(it) } }, enabled = idle) { Text("Sign in with " + st.provider.label) }
+    }
     Option(st.credMode == CredMode.Git, "Import from a git config repo", "Runs aohp-bootstrap <user>/<repo> (config, skills, secrets method) inside the env.", idle) { vm.setCredMode(CredMode.Git) }
     if (st.credMode == CredMode.Git) Column(Modifier.padding(start = 36.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(st.gitRepo, vm::setGitRepo, label = { Text("GitHub <user>/<repo>") }, singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = idle)
@@ -105,8 +116,8 @@ private fun CredStep(st: SetupState, vm: SetupViewModel) {
         if (!st.bridgeUp) Text("The agent bridge is not running — start it on the Runtime tab first.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
     Option(st.credMode == CredMode.Skip, "Skip for now", "You can add a key later (Harness tab or ‘aohp secret set’).", idle) { vm.setCredMode(CredMode.Skip) }
-    NavRow(backEnabled = idle, onBack = vm::back, nextLabel = when (st.credMode) { CredMode.Paste -> "Store key"; CredMode.Git -> "Run bootstrap"; CredMode.Skip -> "Next" },
-        nextEnabled = idle && (st.credMode != CredMode.Paste || st.apiKey.length >= 8) && (st.credMode != CredMode.Git || st.gitRepo.contains('/')), onNext = vm::nextFromCredentials)
+    NavRow(backEnabled = idle, onBack = vm::back, nextLabel = when (st.credMode) { CredMode.Paste -> "Store key"; CredMode.Oauth -> "Sign in above"; CredMode.Git -> "Run bootstrap"; CredMode.Skip -> "Next" },
+        nextEnabled = idle && st.credMode != CredMode.Oauth && (st.credMode != CredMode.Paste || st.apiKey.length >= 8) && (st.credMode != CredMode.Git || st.gitRepo.contains('/')), onNext = vm::nextFromCredentials)
 }
 
 @Composable

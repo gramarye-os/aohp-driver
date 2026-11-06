@@ -1,7 +1,9 @@
 package org.aohp.driver.setup
 
 import android.app.Application
+import android.content.Intent
 import android.util.Log
+import net.openid.appauth.AuthorizationService
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +25,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 enum class SetupStep { Env, Credentials, Start, Done }
-enum class CredMode { Paste, Git, Skip }
+enum class CredMode { Paste, Oauth, Git, Skip }
 enum class Provider(val label: String, val secretName: String, val primaryModel: String) {
     Anthropic("Anthropic", "ANTHROPIC_API_KEY", "anthropic/claude-sonnet-5"),
     OpenAI("OpenAI", "OPENAI_API_KEY", "openai/gpt-5"),
@@ -119,8 +121,38 @@ class SetupViewModel(app: Application) : AndroidViewModel(app) {
         when (_state.value.credMode) {
             CredMode.Skip -> { _state.update { it.copy(credDone = true, credSummary = "skipped", step = SetupStep.Start) } }
             CredMode.Paste -> pasteKey()
+            CredMode.Oauth -> { /* driven by the Sign in button -> buildOauthIntent()/completeOauth() */ }
             CredMode.Git -> importFromGit()
         }
+    }
+
+    // ---- OAuth (item 4): on-device AppAuth flow -> broker cred:<provider> record ----
+    private val oauth by lazy { OAuthManager(getApplication()) }
+    private var authService: AuthorizationService? = null
+
+    /** Build the authorization intent for the selected provider, or null if it has no OAuth flow. */
+    fun buildOauthIntent(): Intent? {
+        val cfg = OAuthConfig.forProvider(_state.value.provider.secretName.removeSuffix("_API_KEY").lowercase())
+            ?: run { _state.update { it.copy(error = "${_state.value.provider.label} has no on-device OAuth; use an API key.") }; return null }
+        val svc = AuthorizationService(getApplication()).also { authService = it }
+        return oauth.buildAuthIntent(svc, cfg)
+    }
+
+    /** Handle the AppAuth redirect result: exchange + persist, then advance. */
+    fun completeOauth(data: Intent) = run("Completing sign-in…") {
+        val s = _state.value
+        val cfg = OAuthConfig.forProvider(s.provider.secretName.removeSuffix("_API_KEY").lowercase())
+            ?: throw RuntimeException("no OAuth config")
+        val svc = authService ?: AuthorizationService(getApplication()).also { authService = it }
+        val provider = oauth.handleAuthResponse(svc, cfg, data)
+        appendLog("stored OAuth credential for $provider (refresh token in Keystore; broker owns refresh)")
+        // Gateway consumption of the OAuth token is item 6 (launcher -> cred.getToken).
+        _state.update { it.copy(credDone = true, credSummary = "${s.provider.label} signed in (OAuth)", step = SetupStep.Start) }
+    }
+
+    override fun onCleared() {
+        authService?.dispose()
+        super.onCleared()
     }
 
     private fun pasteKey() = run("Storing key in Android Keystore…") {
