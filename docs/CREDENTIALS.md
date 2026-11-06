@@ -55,6 +55,42 @@ of portability must be rejected or justified explicitly against this section.
 
 ---
 
+## 0a. OpenClaw is its own broker — do not route its model auth through `cred.*`
+
+OpenClaw already *is* a credential broker for itself: `openclaw models auth login` runs the
+OAuth/device flow, stores the result as an auth **profile** in `state/openclaw.sqlite`, refreshes
+it, and tracks usage. For OpenClaw's **own model credential**, this native path is better than this
+broker — it owns refresh, profiles, and usage windows that `cred.getToken` would only reimplement
+more crudely. So:
+
+- **OpenClaw's model credential → OpenClaw's native auth profile.** Do NOT broker it through
+  `cred.getToken`. The item-6 `aohp-secrets env` -> `cred-get` env injection is correct for
+  **static API keys** (e.g. Z.AI), but for **OAuth providers** it hands OpenClaw a short-lived
+  access token as an env var that goes stale — bypassing OpenClaw's own refresh. Prefer OpenClaw's
+  profile.
+- **The broker serves the *non-OpenClaw* apps** (the search app, future native apps) that have no
+  auth machinery of their own. That is where `cred.*` earns its keep.
+
+**The interactive-login problem on a phone, and the right bridge role.** Headless
+OpenClaw-in-a-container can't pop a browser, which is what made env-injection tempting. Two better
+answers:
+
+1. **Device-code flows run inside OpenClaw (Node), which *does* run in the container** (unlike the
+   `claude` Bun binary, which SIGBUSes here — see 2026-11-05 notes). So OpenClaw can do its **own**
+   device-code login on the phone (e.g. GitHub Copilot): show the code, user approves on any
+   browser, no bridge needed for the interactive step, no localhost callback.
+2. **For redirect-based flows that need on-device UI**, the bridge's job is to be the *login
+   surface*, not the long-term token holder: the Driver runs the interactive OAuth (Custom Tab /
+   device code), then **seeds OpenClaw's own auth profile** so OpenClaw takes over refresh. Bridge =
+   login helper; OpenClaw = credential owner.
+
+This is §0 applied to OpenClaw itself: the broker is a capability, not a cage — it must not force
+OpenClaw through itself for something OpenClaw does natively and better. Device-code is also the
+headless-friendly flow worth adding to `OAuthManager` alongside the AppAuth redirect path, since it
+needs no redirect URI at all.
+
+---
+
 ## 1. Landscape: API keys vs OAuth
 
 The two credential styles behave differently, and the broker must support both because
