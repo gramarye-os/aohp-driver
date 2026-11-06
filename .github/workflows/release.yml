@@ -42,12 +42,15 @@ jobs:
 
       - name: Badging (package / version)
         run: |
-          AAPT=$(ls -d "$ANDROID_HOME"/build-tools/36.0.0/aapt)
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt 2>/dev/null | sort -V | tail -1)
+          [ -n "$AAPT" ] || AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 2>/dev/null | sort -V | tail -1)
           "$AAPT" dump badging dist/AOHPDriver.apk | grep -E '^package:|uses-library' || true
           VN=$("$AAPT" dump badging dist/AOHPDriver.apk | sed -n "s/.*versionName='\([^']*\)'.*/\1/p")
           echo "versionName=$VN"
+          # Tag must match versionName, ignoring a prerelease suffix (e.g. v0.9.0-cred.1 -> v0.9.0).
           case "$GITHUB_REF_NAME" in
-            v*) [ "v$VN" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != versionName $VN" >&2; exit 1; } ;;
+            v*) TAGBASE="${GITHUB_REF_NAME%%-*}"
+                [ "v$VN" = "$TAGBASE" ] || { echo "tag base $TAGBASE != versionName $VN" >&2; exit 1; } ;;
           esac
 
       - uses: actions/upload-artifact@v4
