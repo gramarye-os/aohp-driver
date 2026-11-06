@@ -79,6 +79,7 @@ public final class JsonCommandHandler {
     private final LlmManager mLlm;
     private final PowerModeController mPower;
     private final CredentialBroker mCredBroker;
+    private final BridgeControlSocket mCredControl;
 
     public JsonCommandHandler(Context context) {
         mContext = context.getApplicationContext();
@@ -96,6 +97,9 @@ public final class JsonCommandHandler {
         mPower.start();  // applies auto|performance|saver to the daemon now and on Battery Saver changes
         CredentialAcl credAcl = new CredentialAcl(mSecrets);
         mCredBroker = new CredentialBroker(mContext, mSecrets, credAcl, new CredentialAuditLog());
+        // Item 1b: AF_UNIX control channel with SO_PEERCRED for kernel-verified cred.* callers.
+        mCredControl = new BridgeControlSocket(mContext, this);
+        mCredControl.start();
     }
 
     public void dispatch(WebSocket conn, String message) {
@@ -281,15 +285,15 @@ public final class JsonCommandHandler {
             case "llm.log":
                 return completedJson(() -> mLlm.log(p));
             case "cred.getToken":
-                return completedJson(() -> credGetToken(p));
+                return completedJson(() -> credGetToken(p, caller(p)));
             case "cred.configure":
-                return completedJson(() -> credConfigure(p));
+                return completedJson(() -> credConfigure(p, caller(p)));
             case "cred.status":
-                return completedJson(() -> credStatus(p));
+                return completedJson(() -> credStatus(p, caller(p)));
             case "cred.revoke":
-                return completedJson(() -> credRevoke(p));
+                return completedJson(() -> credRevoke(p, caller(p)));
             case "cred.list":
-                return completedJson(() -> credList(p));
+                return completedJson(() -> credList(p, caller(p)));
             case "secret.get":
                 return completedJson(() -> secretGet(p));
             case "secret.set":
@@ -1845,23 +1849,39 @@ public final class JsonCommandHandler {
     // channel with SO_PEERCRED is the follow-up transport that yields a kernel-verified uid.
 
     private CallerIdentity caller(JSONObject p) {
+        // TCP WebSocket path: no peer credentials, so identity comes from a capability token.
         String cap = p.optString("cap_token", "");
         if (cap.isEmpty()) return CallerIdentity.anonymous();
         String principal = CapabilityToken.verify(mContext, mSecrets, cap);
         return principal == null ? CallerIdentity.anonymous() : CallerIdentity.fromCapability(principal);
     }
 
-    private JSONObject credGetToken(JSONObject p) throws JSONException {
-        String provider = p.optString("provider", "");
-        if (provider.isEmpty()) return errObj("bad_args", "provider required");
-        return mCredBroker.getToken(caller(p), provider, p.optString("purpose", null));
+    /**
+     * Entry point for the AF_UNIX control socket ({@link BridgeControlSocket}), which supplies a
+     * kernel-verified {@link CallerIdentity} from SO_PEERCRED. Only cred.* methods are routed here.
+     */
+    public JSONObject handleCredControl(String method, JSONObject p, CallerIdentity caller)
+            throws JSONException {
+        switch (method) {
+            case "cred.getToken": return credGetToken(p, caller);
+            case "cred.configure": return credConfigure(p, caller);
+            case "cred.status": return credStatus(p, caller);
+            case "cred.revoke": return credRevoke(p, caller);
+            case "cred.list": return credList(p, caller);
+            default: return errObj("unknown_method", method);
+        }
     }
 
-    private JSONObject credConfigure(JSONObject p) throws JSONException {
+    private JSONObject credGetToken(JSONObject p, CallerIdentity c) throws JSONException {
+        String provider = p.optString("provider", "");
+        if (provider.isEmpty()) return errObj("bad_args", "provider required");
+        return mCredBroker.getToken(c, provider, p.optString("purpose", null));
+    }
+
+    private JSONObject credConfigure(JSONObject p, CallerIdentity c) throws JSONException {
         String provider = p.optString("provider", "");
         String kind = p.optString("kind", "");
         if (provider.isEmpty() || kind.isEmpty()) return errObj("bad_args", "provider and kind required");
-        CallerIdentity c = caller(p);
         if ("apikey".equals(kind)) {
             if (!p.has("apikey")) return errObj("bad_args", "apikey required");
             return mCredBroker.configureApiKey(c, provider, p.getString("apikey"));
@@ -1881,20 +1901,20 @@ public final class JsonCommandHandler {
         return errObj("bad_args", "unknown kind " + kind);
     }
 
-    private JSONObject credStatus(JSONObject p) throws JSONException {
+    private JSONObject credStatus(JSONObject p, CallerIdentity c) throws JSONException {
         String provider = p.optString("provider", "");
         if (provider.isEmpty()) return errObj("bad_args", "provider required");
-        return mCredBroker.status(caller(p), provider);
+        return mCredBroker.status(c, provider);
     }
 
-    private JSONObject credRevoke(JSONObject p) throws JSONException {
+    private JSONObject credRevoke(JSONObject p, CallerIdentity c) throws JSONException {
         String provider = p.optString("provider", "");
         if (provider.isEmpty()) return errObj("bad_args", "provider required");
-        return mCredBroker.revoke(caller(p), provider);
+        return mCredBroker.revoke(c, provider);
     }
 
-    private JSONObject credList(JSONObject p) throws JSONException {
-        return mCredBroker.list(caller(p));
+    private JSONObject credList(JSONObject p, CallerIdentity c) throws JSONException {
+        return mCredBroker.list(c);
     }
 
     // ---- secrets (Android Keystore-backed store for provider keys used inside sandboxes) ----
