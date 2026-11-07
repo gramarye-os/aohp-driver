@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -46,6 +48,9 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -156,6 +161,9 @@ private fun AddKeyDialog(preset: String, known: List<CredentialBroker.Provider>,
     var pick by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
     var verdict by remember { mutableStateOf<String?>(null) }   // null = not checked; "checking"; "ok"; "rejected"; "unverified: …"
+    // Visible by default: a key is typed or scanned once, on the user's own phone, and has to be checked by
+    // eye (0/O, l/1). Masking only hides it from the person entering it. The eye icon hides it on demand.
+    var showKey by remember { mutableStateOf(true) }
     val chosen = remember { mutableStateOf(envs.toSet()) }   // default: allow every existing env
     val scope = rememberCoroutineScope()
     val id = if (provider == "custom") custom.trim().lowercase() else provider
@@ -192,7 +200,10 @@ private fun AddKeyDialog(preset: String, known: List<CredentialBroker.Provider>,
                 }
                 if (id.isNotEmpty() || preset.isEmpty()) {
                     OutlinedTextField(key, { key = it; verdict = null }, label = { Text(if (id.isNotEmpty()) CredentialBroker.envVarFor(id) else "key") }, singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace),
+                        visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = { IconButton(onClick = { showKey = !showKey }) { Icon(if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, if (showKey) "Hide key" else "Show key") } },
+                        modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = {
                             scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false).setOrientationLocked(false)
