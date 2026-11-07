@@ -57,6 +57,17 @@ public final class SecretStore {
         return name != null && NAME.matcher(name).matches();
     }
 
+    /**
+     * Reserved internal keys (e.g. the credential ACL, {@code __cred_acl__}). They deliberately do
+     * not match {@link #NAME}, so the legacy {@code secret.*} bridge methods — which validate with
+     * {@link #isValidName} before calling in here — can never read or write them; but the Driver's
+     * own components must still be able to persist them. Bug found on dodge cred.2: the consent
+     * screen's grant hit {@code set()}'s name check and was silently dropped.
+     */
+    public static boolean isReservedName(@Nullable String name) {
+        return name != null && name.startsWith("__") && name.endsWith("__") && name.length() <= 64;
+    }
+
     @Nullable
     public String get(@NonNull String name) {
         return mPrefs.getString(name, null);
@@ -68,7 +79,7 @@ public final class SecretStore {
 
     /** @return false if the name or value is not acceptable. */
     public boolean set(@NonNull String name, @NonNull String value) {
-        if (!isValidName(name) || value.length() > MAX_VALUE_LEN) return false;
+        if (!(isValidName(name) || isReservedName(name)) || value.length() > MAX_VALUE_LEN) return false;
         return mPrefs.edit().putString(name, value).commit();
     }
 

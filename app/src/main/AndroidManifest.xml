@@ -50,6 +50,7 @@
             android:name=".CredentialConsentActivity"
             android:exported="true"
             android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
 
         <receiver

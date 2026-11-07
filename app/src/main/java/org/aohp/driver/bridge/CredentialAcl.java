@@ -58,7 +58,9 @@ public final class CredentialAcl {
             for (Map.Entry<String, Set<String>> e : grants.entrySet()) {
                 o.put(e.getKey(), new JSONArray(e.getValue()));
             }
-            store.set(ACL_KEY, o.toString());
+            if (!store.set(ACL_KEY, o.toString())) {
+                android.util.Log.e("AohpCredAudit", "ACL persist FAILED (store rejected " + ACL_KEY + ")");
+            }
         } catch (JSONException ignored) { }
     }
 
