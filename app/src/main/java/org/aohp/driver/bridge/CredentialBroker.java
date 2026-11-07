@@ -254,28 +254,59 @@ public final class CredentialBroker {
     public static final class Provider {
         public final String id, label, envVar, header;
         public final boolean bearer;
-        Provider(String id, String label, String envVar, String header, boolean bearer) {
-            this.id = id; this.label = label; this.envVar = envVar; this.header = header; this.bearer = bearer;
+        /** A cheap authenticated GET that answers 2xx for a valid key and 401/403 for a bad one; null = cannot verify. */
+        @Nullable public final String probeUrl;
+        Provider(String id, String label, String envVar, String header, boolean bearer, @Nullable String probeUrl) {
+            this.id = id; this.label = label; this.envVar = envVar; this.header = header; this.bearer = bearer; this.probeUrl = probeUrl;
         }
     }
     private static final java.util.LinkedHashMap<String, Provider> KNOWN = new java.util.LinkedHashMap<>();
     static {
         for (Provider p : new Provider[]{
-                new Provider("anthropic",  "Anthropic",          "ANTHROPIC_API_KEY",  "x-api-key",            false),
-                new Provider("openai",     "OpenAI",             "OPENAI_API_KEY",     "authorization",        true),
-                new Provider("zai",        "Z.AI (GLM)",         "ZAI_API_KEY",        "authorization",        true),
-                new Provider("perplexity", "Perplexity",         "PERPLEXITY_API_KEY", "authorization",        true),
-                new Provider("gemini",     "Google Gemini",      "GEMINI_API_KEY",     "x-goog-api-key",       false),
-                new Provider("groq",       "Groq",               "GROQ_API_KEY",       "authorization",        true),
-                new Provider("xai",        "xAI (Grok)",         "XAI_API_KEY",        "authorization",        true),
-                new Provider("mistral",    "Mistral",            "MISTRAL_API_KEY",    "authorization",        true),
-                new Provider("deepseek",   "DeepSeek",           "DEEPSEEK_API_KEY",   "authorization",        true),
-                new Provider("openrouter", "OpenRouter",         "OPENROUTER_API_KEY", "authorization",        true),
-                new Provider("brave",      "Brave Search",       "BRAVE_API_KEY",      "x-subscription-token", false),
-                new Provider("tavily",     "Tavily Search",      "TAVILY_API_KEY",     "authorization",        true),
-                new Provider("github",     "GitHub",             "GITHUB_TOKEN",       "authorization",        true),
+                new Provider("anthropic",  "Anthropic",          "ANTHROPIC_API_KEY",  "x-api-key",            false, "https://api.anthropic.com/v1/models"),
+                new Provider("openai",     "OpenAI",             "OPENAI_API_KEY",     "authorization",        true,  "https://api.openai.com/v1/models"),
+                new Provider("zai",        "Z.AI (GLM)",         "ZAI_API_KEY",        "authorization",        true,  "https://api.z.ai/api/paas/v4/models"),
+                new Provider("perplexity", "Perplexity",         "PERPLEXITY_API_KEY", "authorization",        true,  null),
+                new Provider("gemini",     "Google Gemini",      "GEMINI_API_KEY",     "x-goog-api-key",       false, "https://generativelanguage.googleapis.com/v1beta/models"),
+                new Provider("groq",       "Groq",               "GROQ_API_KEY",       "authorization",        true,  "https://api.groq.com/openai/v1/models"),
+                new Provider("xai",        "xAI (Grok)",         "XAI_API_KEY",        "authorization",        true,  "https://api.x.ai/v1/models"),
+                new Provider("mistral",    "Mistral",            "MISTRAL_API_KEY",    "authorization",        true,  "https://api.mistral.ai/v1/models"),
+                new Provider("deepseek",   "DeepSeek",           "DEEPSEEK_API_KEY",   "authorization",        true,  "https://api.deepseek.com/models"),
+                new Provider("openrouter", "OpenRouter",         "OPENROUTER_API_KEY", "authorization",        true,  "https://openrouter.ai/api/v1/auth/key"),
+                new Provider("brave",      "Brave Search",       "BRAVE_API_KEY",      "x-subscription-token", false, "https://api.search.brave.com/res/v1/web/search?q=ping&count=1"),
+                new Provider("tavily",     "Tavily Search",      "TAVILY_API_KEY",     "authorization",        true,  null),
+                new Provider("github",     "GitHub",             "GITHUB_TOKEN",       "authorization",        true,  "https://api.github.com/user"),
         }) KNOWN.put(p.id, p);
     }
+    /** Provider whose env var is {@code envVar} (e.g. a scanned "ZAI_API_KEY=…" line), or null. */
+    @Nullable public static Provider byEnvVar(String envVar) {
+        for (Provider p : KNOWN.values()) if (p.envVar.equals(envVar)) return p;
+        return null;
+    }
+
+    /**
+     * Verify an API key against the provider's probe endpoint. Returns "ok", "rejected", or
+     * "unverified: <why>" — a wrong probe URL or no network must never read as a bad key.
+     */
+    public static String verifyApiKey(@NonNull String provider, @NonNull String key) {
+        Provider p = KNOWN.get(provider);
+        if (p == null || p.probeUrl == null) return "unverified: no probe for " + provider;
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL(p.probeUrl).openConnection();
+            c.setConnectTimeout(8000); c.setReadTimeout(8000); c.setRequestMethod("GET");
+            c.setRequestProperty(p.header, p.bearer ? "Bearer " + key : key);
+            if ("anthropic".equals(provider)) c.setRequestProperty("anthropic-version", "2023-06-01");
+            c.setRequestProperty("accept", "application/json");
+            int code = c.getResponseCode();
+            if (code >= 200 && code < 300) return "ok";
+            if (code == 401 || code == 403) return "rejected";
+            return "unverified: HTTP " + code;
+        } catch (Exception e) {
+            return "unverified: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } finally { if (c != null) c.disconnect(); }
+    }
+
     /** Known providers in display order (the Credentials screen's picker; the launcher's env-var map). */
     public static List<Provider> knownProviders() { return new ArrayList<>(KNOWN.values()); }
     @Nullable public static Provider known(String id) { return KNOWN.get(id); }

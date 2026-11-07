@@ -1,5 +1,6 @@
 package org.aohp.driver.credentials
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +39,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -93,6 +98,7 @@ fun CredentialsScreen(modifier: Modifier = Modifier, vm: CredentialsViewModel = 
     addFor?.let { preset ->
         AddKeyDialog(preset = preset, known = st.known, envs = st.envs,
             existing = st.rows.filter { it.kind != null }.map { it.provider }.toSet(),
+            verify = { p, k -> vm.verifyKey(p, k) },
             onDismiss = { addFor = null },
             onSave = { provider, key, envsToGrant -> addFor = null; vm.saveKey(provider, key, envsToGrant) })
     }
@@ -143,15 +149,33 @@ private fun CredCard(r: CredRow, envs: List<String>, busy: Boolean,
 
 @Composable
 private fun AddKeyDialog(preset: String, known: List<CredentialBroker.Provider>, envs: List<String>, existing: Set<String>,
+                         verify: suspend (String, String) -> String,
                          onDismiss: () -> Unit, onSave: (String, String, List<String>) -> Unit) {
     var provider by remember { mutableStateOf(preset) }
     var custom by remember { mutableStateOf("") }
     var pick by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
+    var verdict by remember { mutableStateOf<String?>(null) }   // null = not checked; "checking"; "ok"; "rejected"; "unverified: …"
     val chosen = remember { mutableStateOf(envs.toSet()) }   // default: allow every existing env
+    val scope = rememberCoroutineScope()
     val id = if (provider == "custom") custom.trim().lowercase() else provider
     val idOk = PROVIDER_ID.matches(id)
     val k = known.firstOrNull { it.id == provider }
+    fun runVerify() { if (!idOk || key.isBlank()) return; verdict = "checking"; scope.launch { verdict = verify(id, key.trim()) } }
+    // QR payload: either the bare key, or "VAR=value" (e.g. from: qrencode -t ansiutf8 <<< "ZAI_API_KEY=$KEY"),
+    // in which case the provider is picked from the var name too.
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { res ->
+        val text = res.contents?.trim().orEmpty()
+        if (text.isEmpty()) return@rememberLauncherForActivityResult
+        val m = Regex("^([A-Z][A-Z0-9_]*)=(.+)$").find(text)
+        if (m != null) {
+            val p = CredentialBroker.byEnvVar(m.groupValues[1])
+            if (p != null && preset.isEmpty()) provider = p.id
+            key = m.groupValues[2].trim()
+        } else key = text
+        verdict = null
+        runVerify()
+    }
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(if (preset.isNotEmpty() && preset in existing) "Replace $preset key" else "Add a provider key") },
         text = {
@@ -166,10 +190,26 @@ private fun AddKeyDialog(preset: String, known: List<CredentialBroker.Provider>,
                     }
                     if (provider == "custom") OutlinedTextField(custom, { custom = it }, label = { Text("provider id (a-z, 0-9, -, _)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 }
-                if (id.isNotEmpty()) {
-                    OutlinedTextField(key, { key = it }, label = { Text(CredentialBroker.envVarFor(id)) }, singleLine = true,
+                if (id.isNotEmpty() || preset.isEmpty()) {
+                    OutlinedTextField(key, { key = it; verdict = null }, label = { Text(if (id.isNotEmpty()) CredentialBroker.envVarFor(id) else "key") }, singleLine = true,
                         visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            scanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false).setOrientationLocked(false)
+                                .setPrompt("Scan the key's QR code"))
+                        }) { Text("Scan QR") }
+                        OutlinedButton(onClick = { runVerify() }, enabled = idOk && key.isNotBlank() && verdict != "checking") { Text("Verify") }
+                    }
+                    when (val v = verdict) {
+                        null -> {}
+                        "checking" -> Text("Checking with the provider…", style = MaterialTheme.typography.bodySmall)
+                        "ok" -> Text("✓ Key accepted by " + (k?.label ?: id), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        "rejected" -> Text("✗ Rejected by " + (k?.label ?: id) + " — check for a mis-read character", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        else -> Text(v.replaceFirst("unverified: ", "Could not verify: "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     if (k?.bearer == true) Text("Sent as  Authorization: Bearer …", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("On a computer:  qrencode -t ansiutf8 <<< \"" + (if (id.isNotEmpty()) CredentialBroker.envVarFor(id) else "VAR") + "=\$KEY\"",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (envs.isNotEmpty()) {
                     Text("Allow these environments to use it:", style = MaterialTheme.typography.labelMedium)
@@ -179,6 +219,7 @@ private fun AddKeyDialog(preset: String, known: List<CredentialBroker.Provider>,
                 }
             }
         },
-        confirmButton = { TextButton(enabled = idOk && key.isNotBlank(), onClick = { onSave(id, key.trim(), chosen.value.toList()) }) { Text("Save") } },
+        confirmButton = { TextButton(enabled = idOk && key.isNotBlank() && verdict != "checking",
+            onClick = { onSave(id, key.trim(), chosen.value.toList()) }) { Text(if (verdict == "rejected") "Save anyway" else "Save") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }

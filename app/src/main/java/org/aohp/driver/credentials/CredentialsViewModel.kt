@@ -101,6 +101,10 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
         acl.revoke(principal, provider); Log.i(TAG, "REVOKE provider=$provider principal=$principal by=driver-ui"); "Revoked $provider from $principal"
     }
 
+    /** "ok" | "rejected" | "unverified: …" — a cheap authenticated GET against the provider. */
+    suspend fun verifyKey(provider: String, key: String): String =
+        withContext(Dispatchers.IO) { CredentialBroker.verifyApiKey(provider, key) }
+
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     companion object { private const val TAG = "AohpCredAudit" }
