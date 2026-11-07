@@ -90,8 +90,10 @@ public final class SecretStore {
 
     /** Names only — values are never listed. */
     @NonNull
+    /** Public secret names only: reserved internal keys (the credential ACL etc.) are never listed. */
     public List<String> list() {
-        List<String> names = new ArrayList<>(mPrefs.getAll().keySet());
+        List<String> names = new ArrayList<>();
+        for (String n : mPrefs.getAll().keySet()) if (!isReservedName(n)) names.add(n);
         Collections.sort(names);
         return names;
     }
