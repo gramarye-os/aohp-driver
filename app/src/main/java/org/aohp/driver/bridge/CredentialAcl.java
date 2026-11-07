@@ -84,6 +84,22 @@ public final class CredentialAcl {
         if (provs != null) { provs.remove(provider); persist(); }
     }
 
+    /** Snapshot of every grant: principal -> providers. */
+    public synchronized Map<String, Set<String>> all() {
+        load();
+        Map<String, Set<String>> out = new HashMap<>();
+        for (Map.Entry<String, Set<String>> e : grants.entrySet()) out.put(e.getKey(), new HashSet<>(e.getValue()));
+        return out;
+    }
+
+    /** Principals granted a provider. */
+    public synchronized Set<String> principalsFor(@NonNull String provider) {
+        load();
+        Set<String> out = new HashSet<>();
+        for (Map.Entry<String, Set<String>> e : grants.entrySet()) if (e.getValue().contains(provider)) out.add(e.getKey());
+        return out;
+    }
+
     public synchronized Set<String> providersFor(@NonNull String principal) {
         load();
         Set<String> provs = grants.get(principal);

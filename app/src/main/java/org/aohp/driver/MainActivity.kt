@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.Tune
@@ -33,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.aohp.driver.harness.HarnessScreen
 import org.aohp.driver.runtime.RuntimeScreen
+import org.aohp.driver.credentials.CredentialsScreen
 import org.aohp.driver.terminal.TerminalScreen
 import org.aohp.driver.ui.AohpDriverTheme
 import org.aohp.driver.web.WebScreen
@@ -42,6 +44,7 @@ enum class Tab(val label: String, val icon: ImageVector) {
     Harness("Harness", Icons.Filled.Tune),
     Terminal("Terminal", Icons.Filled.Terminal),
     Web("Web", Icons.Filled.Language),
+    Keys("Keys", Icons.Filled.Key),
 }
 
 class MainActivity : ComponentActivity() {
@@ -109,6 +112,7 @@ fun DriverRoot() {
             Tab.Harness -> HarnessScreen(m, onGoToTab = { tab = it }, onSetup = { setup = true })
             Tab.Terminal -> TerminalScreen(m)
             Tab.Web -> WebScreen(m, onGoToTab = { tab = it })
+            Tab.Keys -> CredentialsScreen(m)
         }
     }
 }

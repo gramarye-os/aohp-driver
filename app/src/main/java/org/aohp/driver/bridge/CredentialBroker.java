@@ -248,12 +248,73 @@ public final class CredentialBroker {
 
     // ----- helpers -----
 
+    // ----- provider table -----
+
+    /** How a provider's API key goes on the wire, and which env var OpenClaw reads it from. */
+    public static final class Provider {
+        public final String id, label, envVar, header;
+        public final boolean bearer;
+        Provider(String id, String label, String envVar, String header, boolean bearer) {
+            this.id = id; this.label = label; this.envVar = envVar; this.header = header; this.bearer = bearer;
+        }
+    }
+    private static final java.util.LinkedHashMap<String, Provider> KNOWN = new java.util.LinkedHashMap<>();
+    static {
+        for (Provider p : new Provider[]{
+                new Provider("anthropic",  "Anthropic",          "ANTHROPIC_API_KEY",  "x-api-key",            false),
+                new Provider("openai",     "OpenAI",             "OPENAI_API_KEY",     "authorization",        true),
+                new Provider("zai",        "Z.AI (GLM)",         "ZAI_API_KEY",        "authorization",        true),
+                new Provider("perplexity", "Perplexity",         "PERPLEXITY_API_KEY", "authorization",        true),
+                new Provider("gemini",     "Google Gemini",      "GEMINI_API_KEY",     "x-goog-api-key",       false),
+                new Provider("groq",       "Groq",               "GROQ_API_KEY",       "authorization",        true),
+                new Provider("xai",        "xAI (Grok)",         "XAI_API_KEY",        "authorization",        true),
+                new Provider("mistral",    "Mistral",            "MISTRAL_API_KEY",    "authorization",        true),
+                new Provider("deepseek",   "DeepSeek",           "DEEPSEEK_API_KEY",   "authorization",        true),
+                new Provider("openrouter", "OpenRouter",         "OPENROUTER_API_KEY", "authorization",        true),
+                new Provider("brave",      "Brave Search",       "BRAVE_API_KEY",      "x-subscription-token", false),
+                new Provider("tavily",     "Tavily Search",      "TAVILY_API_KEY",     "authorization",        true),
+                new Provider("github",     "GitHub",             "GITHUB_TOKEN",       "authorization",        true),
+        }) KNOWN.put(p.id, p);
+    }
+    /** Known providers in display order (the Credentials screen's picker; the launcher's env-var map). */
+    public static List<Provider> knownProviders() { return new ArrayList<>(KNOWN.values()); }
+    @Nullable public static Provider known(String id) { return KNOWN.get(id); }
+    /** Env var OpenClaw reads for a provider: the table entry, else the `<PROVIDER>_API_KEY` convention. */
+    public static String envVarFor(String provider) {
+        Provider p = KNOWN.get(provider);
+        return p != null ? p.envVar : provider.toUpperCase(java.util.Locale.ROOT).replace('-', '_') + "_API_KEY";
+    }
+
     private static String headerName(String provider, boolean oauth) {
         if (oauth) return "authorization";
-        if ("brave".equals(provider)) return "x-subscription-token";
-        return "x-api-key";
+        Provider p = KNOWN.get(provider);
+        return p != null ? p.header : "x-api-key";
     }
-    private static String apiHeaderValue(String provider, String key) { return key; }
+    private static String apiHeaderValue(String provider, String key) {
+        Provider p = KNOWN.get(provider);
+        return (p != null && p.bearer) ? "Bearer " + key : key;
+    }
+
+    // ----- Driver-local API (the Credentials screen; no ACL: the Driver is the consent authority) -----
+
+    /** Store an API key from the Driver's own UI. Audited with the Driver as caller. */
+    public boolean localStoreApiKey(@NonNull String provider, @NonNull String apikey) {
+        boolean ok = save(CredentialRecord.apiKey(provider, apikey));
+        Log.i("AohpCredAudit", (ok ? "STORE  " : "STORE_FAILED ") + "provider=" + provider + " by=driver-ui");
+        return ok;
+    }
+    public void localRemove(@NonNull String provider) {
+        store.delete(key(provider));
+        String legacy = legacyName(provider);
+        if (legacy != null && store.has(legacy)) store.delete(legacy);
+        Log.i("AohpCredAudit", "REMOVE provider=" + provider + " by=driver-ui");
+    }
+    /** Stored kind ("apikey"/"oauth") or null when nothing is stored (legacy bare strings count). */
+    @Nullable public String localKind(@NonNull String provider) {
+        CredentialRecord rec = load(provider);
+        return rec == null ? null : (rec.kind == CredentialRecord.Kind.OAUTH ? "oauth" : "apikey");
+    }
+    public List<String> localStoredProviders() { return storedProviders(); }
 
     private static JSONObject token(String headerName, String headerValue, long expiresAt)
             throws JSONException {
