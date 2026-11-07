@@ -214,8 +214,13 @@ identity of a Unix-domain / loopback peer is its kernel-supplied credentials. On
 accepted socket the bridge reads `SO_PEERCRED` (peer uid/gid/pid). Android assigns each
 installed app a distinct uid, so the peer uid *is* the caller's app identity and cannot be
 forged from user space. The bridge maps uid -> package (via `PackageManager`) and uses
-that as the caller principal. For the container/gateway case the peer uid is the
-container's uid, which is likewise distinct.
+that as the caller principal. **Env (container) processes are the exception:** an env is a
+chroot in the host uid space, so every process in it is uid 0 and a uid-1000 process inside
+one would even resolve to the `android` package. The bridge therefore first asks
+`aohp-containerd` which env the peer *pid* belongs to (`WHICHENV <pid>`: `/proc/<pid>/root`
+compared with each env's rootfs) and, for an env process, uses the principal `env:<name>`
+(e.g. `env:oc`) regardless of uid. Grants are then per env, and a second env gets its own row.
+(Measured on dodge cred.1: without this the whole env was the single principal `uid:0`.)
 - Prefer a **`LocalSocket` (AF_UNIX)** transport for broker calls so `SO_PEERCRED` is
   available and the surface is not a TCP port at all. If the WebSocket-on-TCP bridge is
   retained for compatibility, broker (`cred.*`) methods are restricted to the AF_UNIX
@@ -238,8 +243,18 @@ which provider's token. Example:
 | Search app (`org.aohp.search`) | getToken | getToken | — |
 | Unknown caller | deny | deny | deny |
 
-Default is **deny**. Granting a provider to an app is an explicit, user-visible decision
-(a consent screen in the Driver, mirroring the framework's consent-gate pattern).
+Default is **deny**. Granting a provider to an app is an explicit, user-visible decision:
+`CredentialConsentActivity` in the Driver, mirroring the framework's consent-gate pattern.
+There is deliberately **no `cred.grant` RPC** — nothing an app or env process can call grants
+it anything; only a tap on the phone does. The screen takes `principal` + `provider`
+(`revoke=true` to withdraw) and may be opened by a settings UI or, from a host, by
+~~~
+adb shell am start -n org.aohp.driver/.CredentialConsentActivity --es principal env:oc --es provider anthropic
+~~~
+The ACL lives under a reserved key in the encrypted store that the legacy `secret.*` methods
+cannot name (their key syntax is `[A-Z][A-Z0-9_]*`), so the unauthenticated TCP bridge cannot
+read or write it. The broker re-reads the ACL on every check, so a grant takes effect without
+restarting the bridge.
 
 **Audit.** Every `cred.getToken` and `cred.configure` writes an audit entry (principal,
 provider, purpose, outcome, masked token id), mirroring the framework's

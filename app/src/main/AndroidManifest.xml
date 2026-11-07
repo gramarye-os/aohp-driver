@@ -44,6 +44,14 @@
             </intent-filter>
         </activity>
 
+        <!-- Credential broker consent screen (docs/CREDENTIALS.md §4). Exported on purpose: anyone may
+             ask; only a tap on the phone grants. -->
+        <activity
+            android:name=".CredentialConsentActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
+
         <receiver
             android:name=".bridge.NotifyReplyReceiver"
             android:exported="false" />

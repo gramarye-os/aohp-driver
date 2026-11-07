@@ -65,21 +65,25 @@ public final class CredentialAcl {
     /** The one gate the broker calls on every cred.* operation. Fail-closed. */
     public synchronized boolean isAllowed(@NonNull CallerIdentity caller, @NonNull String provider) {
         if (caller.isAnonymous()) return false;
+        load();   // grants may have been changed by CredentialConsentActivity since construction
         Set<String> provs = grants.get(caller.principal());
         return provs != null && provs.contains(provider);
     }
 
     public synchronized void grant(@NonNull String principal, @NonNull String provider) {
+        load();
         grants.computeIfAbsent(principal, k -> new HashSet<>()).add(provider);
         persist();
     }
 
     public synchronized void revoke(@NonNull String principal, @NonNull String provider) {
+        load();
         Set<String> provs = grants.get(principal);
         if (provs != null) { provs.remove(provider); persist(); }
     }
 
     public synchronized Set<String> providersFor(@NonNull String principal) {
+        load();
         Set<String> provs = grants.get(principal);
         return provs == null ? Collections.emptySet() : new HashSet<>(provs);
     }

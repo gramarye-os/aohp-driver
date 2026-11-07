@@ -290,6 +290,25 @@ public final class AohpContainerClient {
         }
     }
 
+    /**
+     * Name of the env (container) the process {@code pid} runs in, or null when it is not an env
+     * process or the service is unavailable. Backed by aohp-containerd's WHICHENV, which compares
+     * /proc/<pid>/root with each env's rootfs.
+     */
+    public String whichEnv(int pid) {
+        try {
+            IAohpContainer svc = getService();
+            if (svc == null) return null;
+            String js = svc.whichEnv(pid);
+            if (js == null) return null;
+            String env = new org.json.JSONObject(js).optString("env", "");
+            return env.isEmpty() ? null : env;
+        } catch (Throwable t) {
+            Log.w(TAG, "whichEnv(" + pid + ") failed: " + t.getMessage());
+            return null;
+        }
+    }
+
     public String diagnose(String containerName) {
         try {
             IAohpContainer svc = getService();

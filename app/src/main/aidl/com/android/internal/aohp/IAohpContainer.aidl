@@ -69,4 +69,6 @@ interface IAohpContainer {
     String unitControl(String containerName, String op, String jsonArgs);
     /** Cpuset of env processes: "performance" (top-app, all cores) or "saver" (system-background). Empty mode = query. Returns {"mode":...}. */
     String powerMode(String mode);
+    /** Name of the env (container) whose rootfs is pid's root, as {"env":"<name>"}; {"error":...} when not an env process. */
+    String whichEnv(int pid);
 }

@@ -37,6 +37,7 @@ public final class BridgeControlSocket {
 
     private final Context ctx;
     private final JsonCommandHandler handler;
+    private final AohpContainerClient containers;   // peer pid -> env name (env:<name> principals)
     private volatile boolean running;
     private Thread acceptThread;
     private LocalServerSocket serverSocket;
@@ -44,6 +45,7 @@ public final class BridgeControlSocket {
     public BridgeControlSocket(@NonNull Context ctx, @NonNull JsonCommandHandler handler) {
         this.ctx = ctx.getApplicationContext();
         this.handler = handler;
+        this.containers = new AohpContainerClient(this.ctx);
     }
 
     public synchronized void start() {
@@ -86,7 +88,7 @@ public final class BridgeControlSocket {
         CallerIdentity caller;
         try {
             Credentials pc = conn.getPeerCredentials();
-            caller = CallerIdentity.fromPeerCredentials(ctx, pc);
+            caller = CallerIdentity.fromPeerCredentials(ctx, pc, containers);
         } catch (Exception e) {
             caller = CallerIdentity.anonymous();
         }
