@@ -10,6 +10,10 @@ exist so every consumer — the OpenClaw gateway launcher, a Perplexity-style se
 - **`cred-get.js`** — minimal Node client for the AF_UNIX control socket (`@aohp_cred`). Calls
   `cred.getToken` and prints `HEADER_NAME<TAB>HEADER_VALUE`. Non-zero exit on any miss, so callers
   fall back. No dependencies (Node `net` only).
+- **`cred-set.js`** — stores an API key via `cred.configure` (key from stdin or `-e VAR`, never
+  argv); `--revoke` deletes the record. Needs the same grant as `cred-get`.
+- **`cred-list.js`** — `cred.list` + `cred.status` per provider: provider / kind / state. Only
+  providers granted to the caller are shown; no secret material is printed. `--json` for raw.
 - **`aohp-secrets-oauth.sh`** — reference OpenClaw launcher integration: broker first, Keystore
   `aohp secret` fallback. `eval "$(aohp-secrets-oauth.sh anthropic)"`.
 

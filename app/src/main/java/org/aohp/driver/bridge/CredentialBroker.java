@@ -73,9 +73,24 @@ public final class CredentialBroker {
         return null;
     }
 
-    private void save(CredentialRecord rec) {
-        try { store.set(key(rec.provider), rec.toJson().toString()); }
-        catch (JSONException e) { Log.e(TAG, "save failed: " + e.getMessage()); }
+    /** @return false when the store rejected the record (never silently: the caller reports it). */
+    private boolean save(CredentialRecord rec) {
+        try {
+            boolean ok = store.set(key(rec.provider), rec.toJson().toString());
+            if (!ok) Log.e(TAG, "save REJECTED by store for " + rec.provider + " (key " + key(rec.provider) + ")");
+            return ok;
+        } catch (JSONException e) { Log.e(TAG, "save failed: " + e.getMessage()); return false; }
+    }
+
+    /** Providers that have a stored record or a legacy bare-string secret. */
+    private List<String> storedProviders() {
+        List<String> out = new ArrayList<>();
+        for (String k : store.reservedNames(KEY_PREFIX)) out.add(k.substring(KEY_PREFIX.length()));
+        for (String p : new String[]{"anthropic", "brave"}) {
+            String legacy = legacyName(p);
+            if (!out.contains(p) && legacy != null && store.has(legacy)) out.add(p);
+        }
+        return out;
     }
 
     @Nullable
@@ -96,7 +111,10 @@ public final class CredentialBroker {
     public JSONObject configureApiKey(@NonNull CallerIdentity caller, @NonNull String provider,
                                       @NonNull String apikey) throws JSONException {
         if (!acl.isAllowed(caller, provider)) return denied(caller, provider, "configure");
-        save(CredentialRecord.apiKey(provider, apikey));
+        if (!save(CredentialRecord.apiKey(provider, apikey))) {
+            audit.record(caller, provider, "configure_apikey", false);
+            return err("store_failed", provider);
+        }
         audit.record(caller, provider, "configure_apikey", true);
         return ok();
     }
@@ -105,7 +123,10 @@ public final class CredentialBroker {
     public JSONObject configureOauth(@NonNull CallerIdentity caller, @NonNull CredentialRecord rec)
             throws JSONException {
         if (!acl.isAllowed(caller, rec.provider)) return denied(caller, rec.provider, "configure");
-        save(rec);
+        if (!save(rec)) {
+            audit.record(caller, rec.provider, "configure_oauth", false);
+            return err("store_failed", rec.provider);
+        }
         audit.record(caller, rec.provider, "configure_oauth", true);
         return ok();
     }
@@ -215,8 +236,9 @@ public final class CredentialBroker {
     }
 
     public JSONObject list(@NonNull CallerIdentity caller) throws JSONException {
+        // Only providers this caller is granted; existence of others is not disclosed.
         List<String> out = new ArrayList<>();
-        for (String provider : new String[]{"anthropic", "brave"}) {
+        for (String provider : storedProviders()) {
             if (acl.isAllowed(caller, provider) && load(provider) != null) out.add(provider);
         }
         JSONObject o = new JSONObject();

@@ -140,7 +140,7 @@ private fun BridgeCard(st: RuntimeState, onStart: () -> Unit, onStop: () -> Unit
                 else Button(onClick = onStart, enabled = st.busy == null && !b.starting) { Text("Start") }
                 OutlinedButton(onClick = onImport, enabled = st.busy == null && !b.running) { Text("Import legacy secrets") }
             }
-            if (!b.running) Text("Import connects to the stock AOHPAgentDriver bridge on :6666 and copies its secrets into this app's Keystore (stop this bridge first; values are never displayed).",
+            Text((if (b.running) "Import is available while this bridge is stopped: it " else "Import ") + "connects to the stock AOHPAgentDriver bridge on :6666 and copies its secrets into this app's Keystore (stop this bridge first; values are never displayed).",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

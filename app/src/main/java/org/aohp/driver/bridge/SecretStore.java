@@ -65,7 +65,20 @@ public final class SecretStore {
      * screen's grant hit {@code set()}'s name check and was silently dropped.
      */
     public static boolean isReservedName(@Nullable String name) {
-        return name != null && name.startsWith("__") && name.endsWith("__") && name.length() <= 64;
+        if (name == null || name.length() > 64) return false;
+        if (name.startsWith("__") && name.endsWith("__")) return true;
+        // Credential broker records: cred:<provider> (CredentialBroker.KEY_PREFIX). Found on dodge
+        // cred.4: cred.configure returned ok but set() had rejected the key, so nothing was stored.
+        return name.startsWith("cred:") && CRED_PROVIDER.matcher(name.substring(5)).matches();
+    }
+    private static final Pattern CRED_PROVIDER = Pattern.compile("[a-z][a-z0-9_-]{0,31}");
+
+    /** Reserved names starting with {@code prefix} (e.g. "cred:") — for the broker's own enumeration. */
+    public List<String> reservedNames(@NonNull String prefix) {
+        List<String> names = new ArrayList<>();
+        for (String n : mPrefs.getAll().keySet()) if (isReservedName(n) && n.startsWith(prefix)) names.add(n);
+        Collections.sort(names);
+        return names;
     }
 
     @Nullable
