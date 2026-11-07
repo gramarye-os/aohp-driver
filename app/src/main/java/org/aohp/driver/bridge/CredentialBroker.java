@@ -50,9 +50,18 @@ public final class CredentialBroker {
         this.store = store;
         this.acl = acl;
         this.audit = audit;
+        loadCatalog(this.ctx, store);
     }
 
     public CredentialAcl acl() { return acl; }
+
+    /** Install a catalog pushed by an env (cred.providers.set): validated, persisted, reloaded. */
+    public synchronized boolean installCatalog(@NonNull String json) {
+        try { parseCatalog(json); } catch (JSONException e) { Log.w("AohpCredAudit", "catalog rejected: " + e.getMessage()); return false; }
+        if (!store.set(CATALOG_KEY, json)) return false;
+        loadCatalog(ctx, store);
+        return true;
+    }
 
     // ----- storage -----
 
@@ -86,7 +95,7 @@ public final class CredentialBroker {
     private List<String> storedProviders() {
         List<String> out = new ArrayList<>();
         for (String k : store.reservedNames(KEY_PREFIX)) out.add(k.substring(KEY_PREFIX.length()));
-        for (String p : new String[]{"anthropic", "brave"}) {
+        for (String p : KNOWN.keySet()) {
             String legacy = legacyName(p);
             if (!out.contains(p) && legacy != null && store.has(legacy)) out.add(p);
         }
@@ -94,12 +103,10 @@ public final class CredentialBroker {
     }
 
     @Nullable
+    /** Legacy bare-string secret name for a provider (its env var), e.g. ANTHROPIC_API_KEY seeded via secret.set. */
     private static String legacyName(String provider) {
-        switch (provider) {
-            case "anthropic": return "ANTHROPIC_API_KEY";
-            case "brave": return "BRAVE_API_KEY";
-            default: return null;
-        }
+        Provider p = KNOWN.get(provider);
+        return p != null ? p.envVar : null;
     }
 
     private ReentrantLock lockFor(String provider) {
@@ -248,39 +255,93 @@ public final class CredentialBroker {
 
     // ----- helpers -----
 
-    // ----- provider table -----
+    // ----- provider catalog -----
+    //
+    // Loaded from JSON (aohp-agents/providers.json is canonical). Order of precedence:
+    //   1. the catalog an env pushed over the socket (cred.providers.set), persisted under CATALOG_KEY;
+    //   2. the built-in copy shipped in assets/providers.json;
+    //   3. a two-entry hardcoded minimum, so the broker never has an empty table.
+    // Loaded once per process by the constructor; reloaded after a push.
 
-    /** How a provider's API key goes on the wire, and which env var OpenClaw reads it from. */
+    /** How a provider's API key is named (env var OpenClaw reads), carried on the wire, and verified. */
     public static final class Provider {
         public final String id, label, envVar, header;
         public final boolean bearer;
         /** A cheap authenticated GET that answers 2xx for a valid key and 401/403 for a bad one; null = cannot verify. */
         @Nullable public final String probeUrl;
-        Provider(String id, String label, String envVar, String header, boolean bearer, @Nullable String probeUrl) {
-            this.id = id; this.label = label; this.envVar = envVar; this.header = header; this.bearer = bearer; this.probeUrl = probeUrl;
+        public final java.util.Map<String, String> probeHeaders;
+        public final List<String> aliases;
+        Provider(String id, String label, String envVar, String header, boolean bearer, @Nullable String probeUrl,
+                 java.util.Map<String, String> probeHeaders, List<String> aliases) {
+            this.id = id; this.label = label; this.envVar = envVar; this.header = header; this.bearer = bearer;
+            this.probeUrl = probeUrl; this.probeHeaders = probeHeaders; this.aliases = aliases;
+        }
+        static Provider fromJson(JSONObject o) throws JSONException {
+            String id = o.getString("id"), env = o.getString("env");
+            if (!id.matches("[a-z][a-z0-9_-]{0,31}") || !env.matches("[A-Z][A-Z0-9_]{0,63}")) throw new JSONException("bad provider id/env: " + id);
+            JSONObject auth = o.optJSONObject("auth");
+            String header = auth != null ? auth.optString("header", "x-api-key") : "x-api-key";
+            boolean bearer = auth != null && "Bearer".equalsIgnoreCase(auth.optString("scheme", ""));
+            java.util.Map<String, String> ph = new java.util.LinkedHashMap<>();
+            JSONObject pho = o.optJSONObject("probeHeaders");
+            if (pho != null) for (java.util.Iterator<String> it = pho.keys(); it.hasNext(); ) { String k = it.next(); ph.put(k, pho.optString(k)); }
+            List<String> al = new ArrayList<>();
+            org.json.JSONArray aa = o.optJSONArray("aliases");
+            if (aa != null) for (int i = 0; i < aa.length(); i++) al.add(aa.optString(i));
+            return new Provider(id, o.optString("label", id), env, header, bearer, o.has("probe") ? o.getString("probe") : null, ph, al);
         }
     }
+
+    static final String CATALOG_KEY = "__providers__";
     private static final java.util.LinkedHashMap<String, Provider> KNOWN = new java.util.LinkedHashMap<>();
-    static {
-        for (Provider p : new Provider[]{
-                new Provider("anthropic",  "Anthropic",          "ANTHROPIC_API_KEY",  "x-api-key",            false, "https://api.anthropic.com/v1/models"),
-                new Provider("openai",     "OpenAI",             "OPENAI_API_KEY",     "authorization",        true,  "https://api.openai.com/v1/models"),
-                new Provider("zai",        "Z.AI (GLM)",         "ZAI_API_KEY",        "authorization",        true,  "https://api.z.ai/api/paas/v4/models"),
-                new Provider("perplexity", "Perplexity",         "PERPLEXITY_API_KEY", "authorization",        true,  null),
-                new Provider("gemini",     "Google Gemini",      "GEMINI_API_KEY",     "x-goog-api-key",       false, "https://generativelanguage.googleapis.com/v1beta/models"),
-                new Provider("groq",       "Groq",               "GROQ_API_KEY",       "authorization",        true,  "https://api.groq.com/openai/v1/models"),
-                new Provider("xai",        "xAI (Grok)",         "XAI_API_KEY",        "authorization",        true,  "https://api.x.ai/v1/models"),
-                new Provider("mistral",    "Mistral",            "MISTRAL_API_KEY",    "authorization",        true,  "https://api.mistral.ai/v1/models"),
-                new Provider("deepseek",   "DeepSeek",           "DEEPSEEK_API_KEY",   "authorization",        true,  "https://api.deepseek.com/models"),
-                new Provider("openrouter", "OpenRouter",         "OPENROUTER_API_KEY", "authorization",        true,  "https://openrouter.ai/api/v1/auth/key"),
-                new Provider("brave",      "Brave Search",       "BRAVE_API_KEY",      "x-subscription-token", false, "https://api.search.brave.com/res/v1/web/search?q=ping&count=1"),
-                new Provider("tavily",     "Tavily Search",      "TAVILY_API_KEY",     "authorization",        true,  null),
-                new Provider("github",     "GitHub",             "GITHUB_TOKEN",       "authorization",        true,  "https://api.github.com/user"),
-        }) KNOWN.put(p.id, p);
+    private static String catalogSource = "none";
+
+    /** Parse a catalog document into a map; throws on any malformed entry (all-or-nothing). */
+    static java.util.LinkedHashMap<String, Provider> parseCatalog(String json) throws JSONException {
+        JSONObject doc = new JSONObject(json);
+        if (doc.optInt("version", 0) < 1) throw new JSONException("catalog version missing");
+        org.json.JSONArray arr = doc.getJSONArray("providers");
+        java.util.LinkedHashMap<String, Provider> m = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < arr.length(); i++) { Provider p = Provider.fromJson(arr.getJSONObject(i)); m.put(p.id, p); }
+        if (m.isEmpty()) throw new JSONException("catalog has no providers");
+        return m;
     }
-    /** Provider whose env var is {@code envVar} (e.g. a scanned "ZAI_API_KEY=…" line), or null. */
+
+    /** (Re)load the catalog: pushed > asset > minimum. Safe to call repeatedly. */
+    public static synchronized void loadCatalog(@NonNull Context ctx, @Nullable SecretStore store) {
+        String pushed = (store != null && store.has(CATALOG_KEY)) ? store.get(CATALOG_KEY) : null;
+        if (pushed != null) {
+            try { KNOWN.clear(); KNOWN.putAll(parseCatalog(pushed)); catalogSource = "pushed"; return; }
+            catch (JSONException e) { Log.w("AohpCredAudit", "pushed provider catalog rejected: " + e.getMessage()); }
+        }
+        try (java.io.InputStream in = ctx.getAssets().open("providers.json")) {
+            byte[] b = new byte[in.available()]; int n = in.read(b);
+            KNOWN.clear(); KNOWN.putAll(parseCatalog(new String(b, 0, n, java.nio.charset.StandardCharsets.UTF_8))); catalogSource = "asset"; return;
+        } catch (Exception e) { Log.e("AohpCredAudit", "built-in provider catalog unreadable: " + e.getMessage()); }
+        if (KNOWN.isEmpty()) {
+            KNOWN.put("anthropic", new Provider("anthropic", "Anthropic", "ANTHROPIC_API_KEY", "x-api-key", false, null, new java.util.HashMap<>(), new ArrayList<>()));
+            KNOWN.put("brave", new Provider("brave", "Brave Search", "BRAVE_API_KEY", "x-subscription-token", false, null, new java.util.HashMap<>(), new ArrayList<>()));
+            catalogSource = "minimum";
+        }
+    }
+    public static String catalogSource() { return catalogSource; }
+
+    /** The current catalog as a JSON document (what cred.providers returns). */
+    public static synchronized JSONObject catalogJson() throws JSONException {
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (Provider p : KNOWN.values()) {
+            JSONObject o = new JSONObject().put("id", p.id).put("label", p.label).put("env", p.envVar)
+                    .put("auth", new JSONObject().put("header", p.header).put("scheme", p.bearer ? "Bearer" : JSONObject.NULL));
+            if (p.probeUrl != null) o.put("probe", p.probeUrl);
+            if (!p.aliases.isEmpty()) o.put("aliases", new org.json.JSONArray(p.aliases));
+            arr.put(o);
+        }
+        return new JSONObject().put("version", 1).put("source", catalogSource).put("providers", arr);
+    }
+
+    /** Provider whose env var or alias is {@code envVar} (e.g. a scanned "ZAI_API_KEY=…" line), or null. */
     @Nullable public static Provider byEnvVar(String envVar) {
-        for (Provider p : KNOWN.values()) if (p.envVar.equals(envVar)) return p;
+        for (Provider p : KNOWN.values()) if (p.envVar.equals(envVar) || p.aliases.contains(envVar)) return p;
         return null;
     }
 
@@ -296,7 +357,7 @@ public final class CredentialBroker {
             c = (java.net.HttpURLConnection) new java.net.URL(p.probeUrl).openConnection();
             c.setConnectTimeout(8000); c.setReadTimeout(8000); c.setRequestMethod("GET");
             c.setRequestProperty(p.header, p.bearer ? "Bearer " + key : key);
-            if ("anthropic".equals(provider)) c.setRequestProperty("anthropic-version", "2023-06-01");
+            for (java.util.Map.Entry<String, String> h : p.probeHeaders.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
             c.setRequestProperty("accept", "application/json");
             int code = c.getResponseCode();
             if (code >= 200 && code < 300) return "ok";
@@ -310,7 +371,7 @@ public final class CredentialBroker {
     /** Known providers in display order (the Credentials screen's picker; the launcher's env-var map). */
     public static List<Provider> knownProviders() { return new ArrayList<>(KNOWN.values()); }
     @Nullable public static Provider known(String id) { return KNOWN.get(id); }
-    /** Env var OpenClaw reads for a provider: the table entry, else the `<PROVIDER>_API_KEY` convention. */
+    /** Env var OpenClaw reads for a provider: the catalog entry, else the `<PROVIDER>_API_KEY` convention. */
     public static String envVarFor(String provider) {
         Provider p = KNOWN.get(provider);
         return p != null ? p.envVar : provider.toUpperCase(java.util.Locale.ROOT).replace('-', '_') + "_API_KEY";

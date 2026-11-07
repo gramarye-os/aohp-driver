@@ -294,6 +294,10 @@ public final class JsonCommandHandler {
                 return completedJson(() -> credRevoke(p, caller(p)));
             case "cred.list":
                 return completedJson(() -> credList(p, caller(p)));
+            case "cred.providers":
+                return completedJson(() -> credProviders(p, caller(p)));
+            case "cred.providers.set":
+                return completedJson(() -> credProvidersSet(p, caller(p)));
             case "secret.get":
                 return completedJson(() -> secretGet(p));
             case "secret.set":
@@ -1868,6 +1872,8 @@ public final class JsonCommandHandler {
             case "cred.status": return credStatus(p, caller);
             case "cred.revoke": return credRevoke(p, caller);
             case "cred.list": return credList(p, caller);
+            case "cred.providers": return credProviders(p, caller);
+            case "cred.providers.set": return credProvidersSet(p, caller);
             default: return errObj("unknown_method", method);
         }
     }
@@ -1915,6 +1921,29 @@ public final class JsonCommandHandler {
 
     private JSONObject credList(JSONObject p, CallerIdentity c) throws JSONException {
         return mCredBroker.list(c);
+    }
+
+    /** The provider catalog (ids, labels, env vars, wire auth). Not secret; any caller may read it. */
+    private JSONObject credProviders(JSONObject p, CallerIdentity c) throws JSONException {
+        return CredentialBroker.catalogJson();
+    }
+
+    /**
+     * Install a provider catalog pushed by an env (aohp-update). Trust bar: the caller must already
+     * hold at least one grant — the same user decision that lets it configure anything — and the
+     * document must parse completely (all-or-nothing). Persisted under a reserved key; reloaded at once.
+     */
+    private JSONObject credProvidersSet(JSONObject p, CallerIdentity c) throws JSONException {
+        if (c.isAnonymous() || mCredBroker.acl().providersFor(c.principal()).isEmpty()) {
+            Log.w("AohpCredAudit", "DENY   providers_set caller=" + c.principal());
+            return errObj("denied", "caller has no grants");
+        }
+        JSONObject catalog = p.optJSONObject("catalog");
+        if (catalog == null) return errObj("bad_args", "catalog object required");
+        if (!mCredBroker.installCatalog(catalog.toString())) return errObj("bad_catalog", "catalog rejected (see log)");
+        int n = catalog.optJSONArray("providers") != null ? catalog.optJSONArray("providers").length() : 0;
+        Log.i("AohpCredAudit", "PROVIDERS_SET by=" + c.principal() + " n=" + n);
+        JSONObject o = okMsg("catalog installed"); o.put("providers", n); return o;
     }
 
     // ---- secrets (Android Keystore-backed store for provider keys used inside sandboxes) ----

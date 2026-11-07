@@ -14,6 +14,9 @@ exist so every consumer — the OpenClaw gateway launcher, a Perplexity-style se
   argv); `--revoke` deletes the record. Needs the same grant as `cred-get`.
 - **`cred-list.js`** — `cred.list` + `cred.status` per provider: provider / kind / state. Only
   providers granted to the caller are shown; no secret material is printed. `--json` for raw.
+- **`cred-providers.js`** — reads the broker's provider catalog (`cred.providers`), or `--push providers.json`
+  installs a new one (`cred.providers.set`; needs an existing grant). The canonical catalog lives in
+  aohp-agents/providers.json; the Driver ships a built-in copy in `assets/`.
 - **`aohp-secrets-oauth.sh`** — reference OpenClaw launcher integration: broker first, Keystore
   `aohp secret` fallback. `eval "$(aohp-secrets-oauth.sh anthropic)"`.
 

@@ -1,0 +1,150 @@
+{
+  "$comment": "gramarye-os provider catalog: how each provider's API key is named (env var OpenClaw reads), carried on the wire by the credential broker, and verified. Canonical copy: aohp-agents/providers.json. The AOHP Driver ships a built-in copy in assets/ and accepts updates over the @aohp_cred socket (cred.providers.set, pushed by aohp-update).",
+  "version": 1,
+  "providers": [
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "env": "ANTHROPIC_API_KEY",
+      "auth": {
+        "header": "x-api-key"
+      },
+      "probe": "https://api.anthropic.com/v1/models",
+      "probeHeaders": {
+        "anthropic-version": "2023-06-01"
+      },
+      "aliases": [
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_OAUTH_TOKEN"
+      ]
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "env": "OPENAI_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.openai.com/v1/models"
+    },
+    {
+      "id": "zai",
+      "label": "Z.AI (GLM)",
+      "env": "ZAI_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.z.ai/api/paas/v4/models",
+      "aliases": [
+        "Z_AI_API_KEY"
+      ]
+    },
+    {
+      "id": "perplexity",
+      "label": "Perplexity",
+      "env": "PERPLEXITY_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      }
+    },
+    {
+      "id": "gemini",
+      "label": "Google Gemini",
+      "env": "GEMINI_API_KEY",
+      "auth": {
+        "header": "x-goog-api-key"
+      },
+      "probe": "https://generativelanguage.googleapis.com/v1beta/models",
+      "aliases": [
+        "GOOGLE_API_KEY"
+      ],
+      "configIds": [
+        "google"
+      ]
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "env": "GROQ_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.groq.com/openai/v1/models"
+    },
+    {
+      "id": "xai",
+      "label": "xAI (Grok)",
+      "env": "XAI_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.x.ai/v1/models"
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
+      "env": "MISTRAL_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.mistral.ai/v1/models"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "env": "DEEPSEEK_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.deepseek.com/models"
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "env": "OPENROUTER_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://openrouter.ai/api/v1/auth/key"
+    },
+    {
+      "id": "brave",
+      "label": "Brave Search",
+      "env": "BRAVE_API_KEY",
+      "auth": {
+        "header": "x-subscription-token"
+      },
+      "probe": "https://api.search.brave.com/res/v1/web/search?q=ping&count=1",
+      "kind": "search"
+    },
+    {
+      "id": "tavily",
+      "label": "Tavily Search",
+      "env": "TAVILY_API_KEY",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "kind": "search"
+    },
+    {
+      "id": "github",
+      "label": "GitHub",
+      "env": "GITHUB_TOKEN",
+      "auth": {
+        "header": "authorization",
+        "scheme": "Bearer"
+      },
+      "probe": "https://api.github.com/user",
+      "kind": "service"
+    }
+  ]
+}
