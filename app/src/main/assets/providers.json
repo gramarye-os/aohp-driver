@@ -1,5 +1,5 @@
 {
-  "$comment": "gramarye-os provider catalog: how each provider's API key is named (env var OpenClaw reads), carried on the wire by the credential broker, and verified. Canonical copy: aohp-agents/providers.json. The AOHP Driver ships a built-in copy in assets/ and accepts updates over the @aohp_cred socket (cred.providers.set, pushed by aohp-update).",
+  "$comment": "gramarye-os provider catalog: how each provider's API key is named (env var OpenClaw reads), carried on the wire by the credential broker, and verified. Canonical copy: aohp-agents/providers.json. The AOHP Driver ships a built-in copy in assets/ and accepts updates over the @aohp_cred socket (cred.providers.set, pushed by aohp-update). An entry's optional 'openclaw' block (baseUrl, models, api) is what aohp-enable writes to models.providers.<id> for providers that have no OpenClaw plugin.",
   "version": 1,
   "providers": [
     {
@@ -39,7 +39,44 @@
       "probe": "https://api.z.ai/api/paas/v4/models",
       "aliases": [
         "Z_AI_API_KEY"
-      ]
+      ],
+      "openclaw": {
+        "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+        "models": [
+          {
+            "id": "glm-5.3",
+            "name": "GLM-5.3",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          },
+          {
+            "id": "glm-5.3-flash",
+            "name": "GLM-5.3-Flash",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          }
+        ]
+      }
     },
     {
       "id": "perplexity",
@@ -48,6 +85,59 @@
       "auth": {
         "header": "authorization",
         "scheme": "Bearer"
+      },
+      "openclaw": {
+        "baseUrl": "https://api.perplexity.ai",
+        "models": [
+          {
+            "id": "sonar",
+            "name": "Sonar",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          },
+          {
+            "id": "sonar-pro",
+            "name": "Sonar Pro",
+            "reasoning": false,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          },
+          {
+            "id": "sonar-reasoning-pro",
+            "name": "Sonar Reasoning Pro",
+            "reasoning": true,
+            "input": [
+              "text"
+            ],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 1000000,
+            "maxTokens": 131072
+          }
+        ]
       }
     },
     {

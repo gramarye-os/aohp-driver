@@ -24,6 +24,7 @@ data class CredRow(
     val envVar: String,
     val kind: String?,            // "apikey" | "oauth" | null (nothing stored)
     val grants: List<String>,     // principals granted this provider (env:oc, org.aohp.search, uid:…)
+    val enabledIn: List<String> = emptyList(),   // envs whose OpenClaw gateway is configured to use it (aohp-enable --status)
 )
 
 data class CredentialsState(
@@ -51,6 +52,21 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
 
     init { refresh() }
 
+    /** Per env: providers its gateway has enabled, from `aohp-enable --status` inside the env. */
+    private fun enabledByEnv(envs: List<String>): Map<String, Set<String>> {
+        val out = HashMap<String, Set<String>>()
+        for (env in envs) {
+            try {
+                val r = containers.execSync(env, "aohp-enable --status 2>/dev/null", 15_000)
+                val text = (r.output ?: "").trim()
+                if (!r.success || !text.startsWith("{")) continue
+                val o = org.json.JSONObject(text)
+                out[env] = o.keys().asSequence().filter { o.getJSONObject(it).optBoolean("enabled") }.toSet()
+            } catch (e: Exception) { Log.w(TAG, "aohp-enable --status in $env: " + e.message) }
+        }
+        return out
+    }
+
     fun refresh() = viewModelScope.launch {
         val (rows, envs) = withContext(Dispatchers.IO) {
             val stored = broker.localStoredProviders().toSet()
@@ -58,6 +74,8 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
             CredentialBroker.knownProviders().forEach { ids += it.id }
             ids += stored
             val all = acl.all()
+            val envList = containers.listContainers()?.toList()?.sorted() ?: emptyList()
+            val enabled = enabledByEnv(envList)
             ids.map { id ->
                 val k = CredentialBroker.known(id)
                 CredRow(
@@ -66,8 +84,9 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
                     envVar = CredentialBroker.envVarFor(id),
                     kind = if (id in stored) broker.localKind(id) else null,
                     grants = all.filterValues { id in it }.keys.sorted(),
+                    enabledIn = enabled.filterValues { id in it }.keys.sorted(),
                 )
-            } to (containers.listContainers()?.toList()?.sorted() ?: emptyList())
+            } to envList
         }
         _state.update { it.copy(rows = rows, envs = envs) }
     }
@@ -104,6 +123,23 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
     /** "ok" | "rejected" | "unverified: …" — a cheap authenticated GET against the provider. */
     suspend fun verifyKey(provider: String, key: String): String =
         withContext(Dispatchers.IO) { CredentialBroker.verifyApiKey(provider, key) }
+
+    /**
+     * Make the gateway in {@code env} use this provider: runs aohp-enable inside the env (validated
+     * config patch + unit restart; see aohp-agents/bin/aohp-enable). The key never leaves the broker:
+     * the env fetches it under its own grant.
+     */
+    fun enableInOpenClaw(env: String, provider: String, makeDefault: Boolean = false) = action("Enabling $provider in env:$env…") {
+        val r = containers.execSync(env, "aohp-enable " + provider + (if (makeDefault) " --default" else "") + " 2>&1", 150_000)
+        val last = ((r.output ?: "").trim().lines().lastOrNull { it.isNotBlank() } ?: "")
+        if (r.success) "env:$env — $last" else "env:$env — failed: $last"
+    }
+
+    fun disableInOpenClaw(env: String, provider: String) = action("Disabling $provider in env:$env…") {
+        val r = containers.execSync(env, "aohp-enable $provider --disable 2>&1", 150_000)
+        val last = ((r.output ?: "").trim().lines().lastOrNull { it.isNotBlank() } ?: "")
+        if (r.success) "env:$env — $last" else "env:$env — failed: $last"
+    }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
 

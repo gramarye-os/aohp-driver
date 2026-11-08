@@ -95,7 +95,9 @@ fun CredentialsScreen(modifier: Modifier = Modifier, vm: CredentialsViewModel = 
                 CredCard(r, st.envs, busy = st.busy != null,
                     onReplace = { addFor = r.provider }, onRemove = { removeFor = r.provider },
                     onGrant = { env -> vm.grant("env:$env", r.provider) },
-                    onRevoke = { p -> vm.revokeGrant(p, r.provider) })
+                    onRevoke = { p -> vm.revokeGrant(p, r.provider) },
+                    onEnable = { env -> vm.enableInOpenClaw(env, r.provider) },
+                    onDisable = { env -> vm.disableInOpenClaw(env, r.provider) })
             }
         }
     }
@@ -119,8 +121,10 @@ fun CredentialsScreen(modifier: Modifier = Modifier, vm: CredentialsViewModel = 
 @Composable
 private fun CredCard(r: CredRow, envs: List<String>, busy: Boolean,
                      onReplace: () -> Unit, onRemove: () -> Unit,
-                     onGrant: (String) -> Unit, onRevoke: (String) -> Unit) {
+                     onGrant: (String) -> Unit, onRevoke: (String) -> Unit,
+                     onEnable: (String) -> Unit, onDisable: (String) -> Unit) {
     var grantMenu by remember { mutableStateOf(false) }
+    var enableMenu by remember { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp)) {
             Text(r.label, style = MaterialTheme.typography.titleMedium)
@@ -133,12 +137,29 @@ private fun CredCard(r: CredRow, envs: List<String>, busy: Boolean,
                     r.grants.forEach { p -> AssistChip(onClick = { if (!busy) onRevoke(p) }, label = { Text(p + "  ✕") }) }
                 }
             }
+            if (r.enabledIn.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text("used by OpenClaw in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    r.enabledIn.forEach { e -> AssistChip(onClick = { if (!busy) onDisable(e) }, label = { Text("env:$e  ✕") }) }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (r.kind == null) Button(onClick = onReplace, enabled = !busy) { Text("Add key") }
                 else {
                     OutlinedButton(onClick = onReplace, enabled = !busy) { Text("Replace") }
                     OutlinedButton(onClick = onRemove, enabled = !busy) { Text("Remove") }
+                }
+                // Enable in OpenClaw: only envs that are granted this provider and don't use it yet.
+                val enableable = envs.filter { "env:$it" in r.grants && it !in r.enabledIn }
+                if (r.kind != null && enableable.isNotEmpty()) {
+                    Button(onClick = { if (enableable.size == 1) onEnable(enableable[0]) else enableMenu = true }, enabled = !busy) {
+                        Text(if (enableable.size == 1) "Enable in OpenClaw" else "Enable in OpenClaw…")
+                    }
+                    DropdownMenu(expanded = enableMenu, onDismissRequest = { enableMenu = false }) {
+                        enableable.forEach { e -> DropdownMenuItem(text = { Text("env:$e") }, onClick = { enableMenu = false; onEnable(e) }) }
+                    }
                 }
                 val grantable = envs.filter { "env:$it" !in r.grants }
                 if (r.kind != null && grantable.isNotEmpty()) {
