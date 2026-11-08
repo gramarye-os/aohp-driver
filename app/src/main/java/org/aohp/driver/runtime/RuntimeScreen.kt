@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import org.aohp.driver.network.GatewayCard
 import org.aohp.driver.ui.CenteredMessage
 import org.aohp.driver.ui.KeyValue
 
@@ -84,6 +85,7 @@ fun RuntimeScreen(modifier: Modifier = Modifier, vm: RuntimeViewModel = viewMode
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     item { ContainerdCard(st) }
                     item { BridgeCard(st, onStart = { vm.startBridge() }, onStop = { vm.stopBridge() }, onImport = { vm.importLegacySecrets() }) }
+                    item { GatewayCard() }
                     items(st.envs, key = { it.name }) { env ->
                         EnvCardView(env, selected = env.name == st.selected, busy = st.busy != null,
                             autostart = env.name !in st.autostartOff, onAutostart = { vm.setAutostart(env.name, it) },
