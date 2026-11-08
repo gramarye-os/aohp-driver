@@ -129,7 +129,7 @@ private fun GatewayCard(st: HarnessState, vm: HarnessViewModel, onGoToTab: (Tab)
             KeyValue("command", gw?.command?.ifEmpty { GATEWAY_COMMAND } ?: GATEWAY_COMMAND, mono = true)
             KeyValue("http", st.probe?.let { (if (it.up) "reachable" else "unreachable") + " · " + it.detail } ?: "probing…")
             st.probe?.version?.let { KeyValue("version", it, mono = true) }
-            KeyValue("url", GATEWAY_URL, mono = true)
+            KeyValue("url", GatewayEndpoint.url(), mono = true)
             st.busy?.let { Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.width(16.dp).height(16.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)); Text(it) } }
             Spacer(Modifier.height(8.dp))
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

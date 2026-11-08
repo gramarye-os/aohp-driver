@@ -23,6 +23,7 @@ import java.net.URL
 
 const val GATEWAY_SERVICE_ID = "openclaw-gateway"
 const val GATEWAY_COMMAND = "openclaw gateway"
+/** Plain-HTTP form, kept for log text; live callers use GatewayEndpoint.url() (HTTPS once TLS is on). */
 const val GATEWAY_URL = "http://127.0.0.1:18789/"
 
 data class HttpProbe(val up: Boolean, val code: Int = 0, val version: String? = null, val detail: String = "")
@@ -123,8 +124,9 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     fun setLogService(id: String) { _state.update { it.copy(logServiceId = id) }; refreshLog() }
 
     private suspend fun probeHttp(): HttpProbe = withContext(Dispatchers.IO) {
+        GatewayEndpoint.refresh(svc, _state.value.env)
         fun get(path: String): Pair<Int, String> {
-            val c = URL(GATEWAY_URL + path).openConnection() as HttpURLConnection
+            val c = GatewayEndpoint.open(path)
             c.connectTimeout = 1500; c.readTimeout = 2500; c.instanceFollowRedirects = false
             return try {
                 val code = c.responseCode

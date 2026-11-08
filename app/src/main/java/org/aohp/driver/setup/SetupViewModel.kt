@@ -21,6 +21,7 @@ import org.aohp.driver.bridge.SecretStore
 import org.aohp.driver.harness.GATEWAY_COMMAND
 import org.aohp.driver.harness.GATEWAY_SERVICE_ID
 import org.aohp.driver.harness.GATEWAY_URL
+import org.aohp.driver.harness.GatewayEndpoint
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -294,7 +295,7 @@ exec /usr/local/bin/openclaw.real "${'$'}@"
             appendLog("gateway did not answer on 18789 within 4 min; log tail:\n" + tail.takeLast(1500))
             throw RuntimeException("gateway not reachable yet (HTTP " + (code ?: "none") + ") — it is still running; tap Start gateway again to keep waiting, or check the Harness log")
         }
-        appendLog("HTTP ${code} on ${GATEWAY_URL}")
+        appendLog("HTTP ${code} on ${GatewayEndpoint.url()}")
         _state.update { it.copy(step = SetupStep.Done) }
     }
 
@@ -302,7 +303,8 @@ exec /usr/local/bin/openclaw.real "${'$'}@"
 
     private suspend fun probe(): Int? = withContext(Dispatchers.IO) {
         try {
-            val c = URL(GATEWAY_URL).openConnection() as HttpURLConnection
+            GatewayEndpoint.refresh(svc, _state.value.envName)
+            val c = GatewayEndpoint.open()
             c.connectTimeout = 1500; c.readTimeout = 2500; c.instanceFollowRedirects = false
             try { c.responseCode } finally { c.disconnect() }
         } catch (_: Throwable) { null }

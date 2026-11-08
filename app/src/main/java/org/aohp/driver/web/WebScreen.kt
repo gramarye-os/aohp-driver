@@ -51,7 +51,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.aohp.driver.Tab
-import org.aohp.driver.harness.GATEWAY_URL
+import org.aohp.driver.harness.GatewayEndpoint
+import android.net.http.SslError
+import android.webkit.SslErrorHandler
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -78,14 +80,15 @@ fun WebScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit) {
         while (true) {
             val up = withContext(Dispatchers.IO) {
                 runCatching {
-                    val c = URL(GATEWAY_URL).openConnection() as HttpURLConnection
+                    GatewayEndpoint.refresh((ctx.applicationContext as org.aohp.driver.DriverApp).containers, null)
+                    val c = GatewayEndpoint.open()
                     c.connectTimeout = 1500; c.readTimeout = 2500
                     try { c.responseCode in 200..399 } finally { c.disconnect() }
                 }.getOrDefault(false)
             }
             if (up && gatewayUp != true) {
                 val wv = WebHolder.webView
-                if (wv != null && (wv.url == null || loadError != null)) { loadError = null; wv.loadUrl(GATEWAY_URL) }
+                if (wv != null && (wv.url == null || loadError != null)) { loadError = null; wv.loadUrl(GatewayEndpoint.url()) }
             }
             gatewayUp = up
             delay(if (up) 10_000 else 3_000)
@@ -119,6 +122,12 @@ fun WebScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit) {
             }
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) { loadError = null; canGoBack = view.canGoBack() }
             override fun onPageFinished(view: WebView, url: String?) { canGoBack = view.canGoBack(); title = view.title ?: "" }
+            // The gateway's self-signed cert: accept it only when it is the pinned one and the page is loopback.
+            override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: SslError) {
+                val host = runCatching { java.net.URL(error.url).host }.getOrNull()
+                val cert = runCatching { error.certificate?.x509Certificate }.getOrNull()
+                if ((host == "127.0.0.1" || host == "localhost") && GatewayEndpoint.matches(cert)) handler.proceed() else handler.cancel()
+            }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) { loadError = error.description?.toString() ?: "load error"; gatewayUp = false }
             }
@@ -136,7 +145,7 @@ fun WebScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit) {
         modifier = modifier,
         topBar = {
             TopAppBar(title = { Text(title.ifEmpty { "Web" }, maxLines = 1) }, actions = {
-                IconButton(onClick = { webView.loadUrl(GATEWAY_URL) }) { Icon(Icons.Filled.Home, "Home") }
+                IconButton(onClick = { webView.loadUrl(GatewayEndpoint.url()) }) { Icon(Icons.Filled.Home, "Home") }
                 IconButton(onClick = { webView.reload() }) { Icon(Icons.Filled.Refresh, "Reload") }
             })
         },
@@ -149,13 +158,13 @@ fun WebScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Gateway is down", style = MaterialTheme.typography.headlineSmall)
                         Spacer(Modifier.height(8.dp))
-                        Text(GATEWAY_URL, fontFamily = FontFamily.Monospace)
+                        Text(GatewayEndpoint.url(), fontFamily = FontFamily.Monospace)
                         loadError?.let { Spacer(Modifier.height(4.dp)); Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                         Spacer(Modifier.height(16.dp))
                         Row {
                             Button(onClick = { onGoToTab(Tab.Harness) }) { Text("Go to Harness") }
                             Spacer(Modifier.width(8.dp))
-                            OutlinedButton(onClick = { loadError = null; webView.loadUrl(GATEWAY_URL) }) { Text("Retry") }
+                            OutlinedButton(onClick = { loadError = null; webView.loadUrl(GatewayEndpoint.url()) }) { Text("Retry") }
                         }
                         Spacer(Modifier.height(8.dp))
                         Text("Re-probing every 3 s…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
