@@ -73,11 +73,17 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 if (!g.reachable) { KeyValue("status", g.error ?: "unreachable"); return@forEach }
                 KeyValue("transport", (if (g.tls) "HTTPS / WSS" else "plain HTTP") + " · auth " + g.auth + " · bind " + g.bind)
                 g.urls.forEach { u -> KeyValue(u.iface, u.url, mono = true) }
-                g.fingerprint?.let { KeyValue("cert sha256", it.take(23) + "…", mono = true) }
+                // Cert lines with the Cert button beside them (not in the action row: three buttons overflow a phone width).
+                if (g.fingerprint != null || g.cert != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        g.fingerprint?.let { KeyValue("cert sha256", it.take(23) + "…", mono = true) }
+                        g.cert?.let { c -> KeyValue("cert for", (c.names + c.ips).joinToString(" ").ifEmpty { "(no names — generic cert)" }, mono = true) }
+                    }
+                    TextButton(onClick = { certAsk = g }, enabled = st.busy == null) { Text("Cert") }
+                }
                 g.cert?.let { c ->
-                    KeyValue("cert for", (c.names + c.ips).joinToString(" ").ifEmpty { "(no names — generic cert)" }, mono = true)
-                    if (!c.covers) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("not valid for " + c.missing.joinToString(" "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    if (!c.covers) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("not valid for " + c.missing.joinToString(" "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         TextButton(onClick = { certAsk = g }, enabled = st.busy == null) { Text("Fix") }
                     }
                 }
@@ -97,7 +103,6 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         if (shown != null) tokenShown = null
                         else scope.launch { val t = vm.token(g.env); if (t == null) onMessage("No token in the keystore") else tokenShown = g.env to t }
                     }) { Text(if (shown != null) "Hide token" else "Show token") }
-                    TextButton(onClick = { certAsk = g }, enabled = st.busy == null) { Text("Cert") }
                 }
                 if (g.pending.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
