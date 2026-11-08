@@ -21,6 +21,7 @@ import org.json.JSONObject
 
 data class GatewayUrl(val iface: String, val url: String)
 data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?)
+/** [id] is the deviceId (paired) or the pairing requestId (pending): approve/reject take the request id, remove takes the device id. */
 data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean)
 
 /** One env's OpenClaw gateway as seen from inside the env (aohp-gateway status). */
@@ -51,8 +52,8 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
 
     init { refresh() }
 
-    private fun device(o: JSONObject): GatewayDevice = GatewayDevice(
-        id = o.optString("deviceId"),
+    private fun device(o: JSONObject, pending: Boolean = false): GatewayDevice = GatewayDevice(
+        id = if (pending) o.optString("requestId", o.optString("deviceId")) else o.optString("deviceId"),
         label = o.optString("label", ""),
         platform = o.optString("platform", "?"),
         client = o.optString("clientId", o.optString("clientMode", "?")),
@@ -70,7 +71,7 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
             val ua = o.optJSONArray("urls")
             if (ua != null) for (i in 0 until ua.length()) { val u = ua.getJSONObject(i); urls += GatewayUrl(u.optString("iface"), u.optString("url")) }
             val pend = ArrayList<GatewayDevice>(); val pa = o.optJSONArray("pending")
-            if (pa != null) for (i in 0 until pa.length()) pend += device(pa.getJSONObject(i))
+            if (pa != null) for (i in 0 until pa.length()) pend += device(pa.getJSONObject(i), pending = true)
             val pair = ArrayList<GatewayDevice>(); val pr = o.optJSONArray("paired")
             if (pr != null) for (i in 0 until pr.length()) pair += device(pr.getJSONObject(i))
             // wg0 first: it is the tunnel a laptop reaches the phone over; LAN next; tailscale last.
@@ -100,6 +101,7 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
     private fun run(env: String, args: String): String {
         val r = containers.execSync(env, "aohp-gateway $args 2>&1", 30_000)
         val last = (r.output ?: "").trim().lines().lastOrNull { it.isNotBlank() } ?: ""
+        Log.i(TAG, "aohp-gateway $args -> " + (if (r.success) "ok" else "FAILED") + ": " + last.take(160))
         return if (r.success) last.ifEmpty { "ok" } else "failed: $last"
     }
 
