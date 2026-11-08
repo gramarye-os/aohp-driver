@@ -1,7 +1,7 @@
 package org.aohp.driver.harness
 
 import android.util.Log
-import org.aohp.driver.bridge.AohpContainerClient
+import org.aohp.driver.binder.ContainerService
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -28,15 +28,15 @@ object GatewayEndpoint {
     fun url(path: String = ""): String = (if (tls) "https" else "http") + "://" + HOST + ":" + PORT + "/" + path.trimStart('/')
 
     /** Re-learn TLS state from the env (cheap; rate-limited to once per 20 s unless [force]). */
-    fun refresh(svc: AohpContainerClient, env: String?, force: Boolean = false) {
+    suspend fun refresh(svc: ContainerService, env: String?, force: Boolean = false) {
         val now = System.currentTimeMillis()
         if (!force && now - refreshedAt < 20_000) return
         refreshedAt = now
-        val e = env ?: svc.listContainers()?.firstOrNull() ?: return
+        val e = env ?: svc.listContainers().getOrNull()?.firstOrNull() ?: return
         try {
-            val r = svc.execSync(e, "aohp-gateway fingerprint 2>/dev/null", 15_000)
-            val fp = (r.output ?: "").trim().uppercase()
-            if (r.success && fp.matches(Regex("([0-9A-F]{2}:){31}[0-9A-F]{2}"))) { tls = true; fingerprint = fp }
+            val r = svc.execSync(e, "aohp-gateway fingerprint 2>/dev/null", 15_000).getOrNull()
+            val fp = (r?.stdout ?: "").trim().uppercase()
+            if (r != null && r.exitCode == 0 && fp.matches(Regex("([0-9A-F]{2}:){31}[0-9A-F]{2}"))) { tls = true; fingerprint = fp }
             else { tls = false; fingerprint = null }
         } catch (t: Throwable) { Log.w(TAG, "endpoint refresh: " + t.message) }
     }
