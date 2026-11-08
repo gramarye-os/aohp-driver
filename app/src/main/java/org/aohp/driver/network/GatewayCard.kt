@@ -13,6 +13,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -27,10 +29,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import android.provider.Settings
 import kotlinx.coroutines.launch
 import org.aohp.driver.ui.KeyValue
 
@@ -50,6 +54,11 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
     var minting by remember { mutableStateOf(false) }
     var tokenShown by remember { mutableStateOf<Pair<String, String>?>(null) }   // env -> token
     var removeAsk by remember { mutableStateOf<Pair<String, GatewayDevice>?>(null) }
+    var certAsk by remember { mutableStateOf<GatewayInfo?>(null) }
+    val ctx = LocalContext.current
+    val smMode by ServerMode.mode.collectAsStateWithLifecycle()
+    val sm by ServerMode.status.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { ServerMode.load(ctx) }
     LaunchedEffect(st.message) { st.message?.let { onMessage(it); vm.consumeMessage() } }
 
     Card(Modifier.fillMaxWidth()) {
@@ -65,6 +74,13 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 KeyValue("transport", (if (g.tls) "HTTPS / WSS" else "plain HTTP") + " · auth " + g.auth + " · bind " + g.bind)
                 g.urls.forEach { u -> KeyValue(u.iface, u.url, mono = true) }
                 g.fingerprint?.let { KeyValue("cert sha256", it.take(23) + "…", mono = true) }
+                g.cert?.let { c ->
+                    KeyValue("cert for", (c.names + c.ips).joinToString(" ").ifEmpty { "(no names — generic cert)" }, mono = true)
+                    if (!c.covers) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("not valid for " + c.missing.joinToString(" "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = { certAsk = g }, enabled = st.busy == null) { Text("Fix") }
+                    }
+                }
                 val shown = tokenShown?.takeIf { it.first == g.env }?.second
                 KeyValue("token", shown ?: "••••••••  (tap Show)", mono = true)
                 Spacer(Modifier.height(6.dp))
@@ -81,6 +97,7 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         if (shown != null) tokenShown = null
                         else scope.launch { val t = vm.token(g.env); if (t == null) onMessage("No token in the keystore") else tokenShown = g.env to t }
                     }) { Text(if (shown != null) "Hide token" else "Show token") }
+                    TextButton(onClick = { certAsk = g }, enabled = st.busy == null) { Text("Cert") }
                 }
                 if (g.pending.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -109,7 +126,39 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         label = { Text(label + when (op) { DeviceOp.WORKING -> "  …"; DeviceOp.FAILED -> "  ✗"; else -> "  ✕" }) })
                 }
             }
+            // Phone-level, not per env: the radio is shared.
+            Spacer(Modifier.height(10.dp))
+            Text("Server mode — keep Wi-Fi awake with the screen off", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ServerMode.Mode.values().forEach { m ->
+                    FilterChip(selected = smMode == m, onClick = { ServerMode.set(ctx, m) }, label = { Text(m.label) })
+                }
+            }
+            Text((if (sm.held) "● " else "○ ") + sm.detail, style = MaterialTheme.typography.bodySmall)
         }
+    }
+
+    certAsk?.let { g ->
+        val c = g.cert
+        val def = remember { deviceName(ctx) }
+        var name by remember { mutableStateOf(c?.cn?.takeIf { it.isNotEmpty() && it != "openclaw-gateway" } ?: def) }
+        AlertDialog(onDismissRequest = { certAsk = null },
+            title = { Text("Gateway certificate") },
+            text = {
+                Column {
+                    if (c != null) {
+                        Text("Issued to " + c.cn + (if (c.notAfter.isNotEmpty()) ", valid until " + c.notAfter else ""), style = MaterialTheme.typography.bodySmall)
+                        Text("Valid for: " + (c.names + c.ips).joinToString(", ").ifEmpty { "nothing — no subjectAltName, so no browser can match it to a host" }, style = MaterialTheme.typography.bodySmall)
+                        if (!c.covers) Text("Does not name this phone's current address: " + c.missing.joinToString(", "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    } else Text("No certificate (TLS off?).", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Regenerate issues a new self-signed certificate on the same key, naming this phone and every address it has now (LAN, wg0, tailscale, " + name + ".local). A browser that imports it once then shows a clean padlock. The fingerprint changes: browsers and the OpenClaw app that accepted the old one must accept the new one.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = name, onValueChange = { name = it.lowercase().replace(" ", "").replace(Regex("[^a-z0-9-]"), "-") }, label = { Text("server name") }, singleLine = true)
+                }
+            },
+            confirmButton = { TextButton(onClick = { certAsk = null; vm.regenCert(g.env, name.replace(Regex("^-+|-+$"), "").ifEmpty { "aohp" }) }) { Text("Regenerate") } },
+            dismissButton = { TextButton(onClick = { certAsk = null }) { Text("Close") } })
     }
 
     removeAsk?.let { (env, d) ->
@@ -141,4 +190,10 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
             },
             confirmButton = { TextButton(onClick = { pairFor = null; vm.refresh() }) { Text("Done") } })
     }
+}
+
+/** The Android device name (Settings > About > Device name) as a hostname: "OnePlus 13" -> oneplus13. The same name mDNS will advertise. */
+private fun deviceName(ctx: android.content.Context): String {
+    val raw = Settings.Global.getString(ctx.contentResolver, Settings.Global.DEVICE_NAME) ?: android.os.Build.MODEL ?: "aohp"
+    return raw.lowercase().replace(" ", "").replace(Regex("[^a-z0-9-]"), "-").replace(Regex("^-+|-+$"), "").ifEmpty { "aohp" }
 }

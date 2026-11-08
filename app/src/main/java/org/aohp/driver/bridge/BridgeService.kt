@@ -5,9 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
+import android.os.BatteryManager
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
@@ -24,6 +28,7 @@ import org.aohp.driver.DriverApp
 import org.aohp.driver.MainActivity
 import org.aohp.driver.R
 import org.aohp.driver.ServiceRegistry
+import org.aohp.driver.network.ServerMode
 import java.net.InetSocketAddress
 
 data class BridgeState(
@@ -75,6 +80,9 @@ class BridgeService : Service() {
 
     private var server: BridgeWebSocketServer? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+    private var powerReceiver: BroadcastReceiver? = null
+    private var serverModeJob: kotlinx.coroutines.Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var clientPoller: kotlinx.coroutines.Job? = null
 
@@ -154,6 +162,7 @@ class BridgeService : Service() {
                 }
                 server = s
                 acquireWakeLock()
+                startServerMode()
                 val a11yErr = A11yKeepalive.ensureEnabled(this)
                 _state.value = BridgeState(running = true, port = port, error = a11yErr?.let { "a11y keepalive: $it" },
                     a11yEnabled = A11yKeepalive.isEnabled(this), a11yConnected = BridgeAccessibilityService.connected)
@@ -186,6 +195,7 @@ class BridgeService : Service() {
         }
         server = null
         releaseWakeLock()
+        stopServerMode()
         _state.value = BridgeState(port = _state.value.port)
         Log.i(TAG, "bridge stopped")
     }
@@ -199,6 +209,66 @@ class BridgeService : Service() {
     private fun releaseWakeLock() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+    }
+
+    /**
+     * Server mode: keep the Wi-Fi radio out of 802.11 power-save while the screen is off, so the
+     * gateway, sshd and wg stay reachable on a shelf. Measured 2026-10 on both the Pixel 6 (BCM4389)
+     * and the OnePlus (Qualcomm): after a long screen-off the radio in power-save drops or delays
+     * inbound frames; "stay awake while charging" only masked it by keeping the screen on. A
+     * FULL_HIGH_PERF WifiLock is honoured whenever STA is connected
+     * (WifiLockManager.canActivateHighPerfLock) - unlike LOW_LATENCY, which needs a foreground
+     * activity AND the screen on. The CPU side is the partial wakelock above; the Driver is also on
+     * the Doze allowlist (vendor/aohp sysconfig) so both hold on battery. Policy: off / while
+     * charging (default) / always; re-evaluated on power connect/disconnect and on change.
+     */
+    private fun startServerMode() {
+        if (powerReceiver != null) return
+        powerReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, i: Intent?) { applyServerMode() }
+        }.also {
+            val f = IntentFilter().apply { addAction(Intent.ACTION_POWER_CONNECTED); addAction(Intent.ACTION_POWER_DISCONNECTED) }
+            registerReceiver(it, f, Context.RECEIVER_NOT_EXPORTED)
+        }
+        serverModeJob = scope.launch { ServerMode.mode.collect { applyServerMode() } }
+    }
+
+    private fun stopServerMode() {
+        serverModeJob?.cancel(); serverModeJob = null
+        powerReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }; powerReceiver = null
+        releaseWifiLock()
+        ServerMode.publish(ServerMode.Status(ServerMode.load(this), held = false, plugged = isPlugged(), detail = "bridge not running"))
+    }
+
+    private fun isPlugged(): Boolean =
+        (registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+
+    @Suppress("DEPRECATION")
+    private fun applyServerMode() {
+        synchronized(this) {
+            val mode = ServerMode.load(this)
+            val plugged = isPlugged()
+            val want = mode == ServerMode.Mode.ALWAYS || (mode == ServerMode.Mode.CHARGING && plugged)
+            if (want && wifiLock?.isHeld != true) {
+                val wm = applicationContext.getSystemService(WifiManager::class.java)
+                wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "AohpDriver:server").also { it.setReferenceCounted(false); it.acquire() }
+                Log.i(TAG, "server mode: Wi-Fi high-perf lock held (" + mode + (if (plugged) ", charging)" else ", battery)"))
+            } else if (!want && wifiLock != null) {
+                releaseWifiLock()
+                Log.i(TAG, "server mode: Wi-Fi lock released (" + mode + (if (plugged) ", charging)" else ", battery)"))
+            }
+            val detail = when {
+                want -> "Wi-Fi kept awake" + (if (mode == ServerMode.Mode.CHARGING) " (charging)" else "")
+                mode == ServerMode.Mode.CHARGING -> "on battery: Wi-Fi may sleep with the screen off; plug in to serve"
+                else -> "off: Wi-Fi may sleep with the screen off"
+            }
+            ServerMode.publish(ServerMode.Status(mode, held = wifiLock?.isHeld == true, plugged = plugged, detail = detail))
+        }
+    }
+
+    private fun releaseWifiLock() {
+        wifiLock?.let { if (it.isHeld) it.release() }
+        wifiLock = null
     }
 
     /**

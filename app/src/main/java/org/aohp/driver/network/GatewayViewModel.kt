@@ -21,6 +21,8 @@ import org.json.JSONObject
 
 data class GatewayUrl(val iface: String, val url: String)
 data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?)
+/** What the serving certificate is valid for (aohp-gateway cert): covers=false when the phone has an address the cert does not name. */
+data class CertInfo(val cn: String, val names: List<String>, val ips: List<String>, val notAfter: String, val covers: Boolean, val missing: List<String>)
 /** [id] is the deviceId (paired) or the pairing requestId (pending): approve/reject take the request id, remove takes the device id. */
 data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean,
                          val host: String = "", val lastSeenMs: Long = 0L) {
@@ -42,6 +44,7 @@ data class GatewayInfo(
     val reachable: Boolean,
     val tls: Boolean = false,
     val fingerprint: String? = null,
+    val cert: CertInfo? = null,
     val bind: String = "",
     val auth: String = "",
     val urls: List<GatewayUrl> = emptyList(),
@@ -92,7 +95,11 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
             // wg0 first: it is the tunnel a laptop reaches the phone over; LAN next; tailscale last.
             val order = listOf("wg0", "wlan0", "eth0", "tailscale0")
             urls.sortBy { order.indexOf(it.iface).let { i -> if (i < 0) 99 else i } }
-            GatewayInfo(env, true, o.optBoolean("tls"), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" },
+            val cert = o.optJSONObject("cert")?.let { c ->
+                fun arr(k: String): List<String> { val a = c.optJSONArray(k) ?: return emptyList(); return (0 until a.length()).map { a.getString(it) } }
+                CertInfo(c.optString("cn"), arr("names"), arr("ips"), c.optString("notAfter"), c.optBoolean("covers", true), arr("missing"))
+            }
+            GatewayInfo(env, true, o.optBoolean("tls"), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" }, cert,
                 o.optString("bind"), o.optString("auth"), urls, pend, pair)
         } catch (e: Exception) {
             Log.w(TAG, "gateway status in $env: " + e.message); GatewayInfo(env, false, error = e.message)
@@ -131,6 +138,11 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
     fun approve(env: String, id: String) = deviceAction(env, id, "approve $id")
     fun reject(env: String, id: String) = deviceAction(env, id, "reject $id")
     fun remove(env: String, id: String) = deviceAction(env, id, "remove $id")
+    /** Re-issue the serving cert on the same key with this phone's name and addresses as SANs (aohp-gateway cert regen). */
+    fun regenCert(env: String, name: String) = action("Regenerating…") {
+        val r = run(env, "cert regen " + name.lowercase().replace(Regex("[^a-z0-9-]"), ""))
+        if (r.startsWith("failed")) r else "Certificate re-issued for " + name + " — browsers and the OpenClaw app must accept the new fingerprint"
+    }
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     /** A pairing URL for a laptop: https://<iface ip>:port/#bootstrapToken=… (10-minute token, fragment only). */
