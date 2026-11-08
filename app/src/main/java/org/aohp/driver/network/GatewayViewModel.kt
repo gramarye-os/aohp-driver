@@ -22,7 +22,19 @@ import org.json.JSONObject
 data class GatewayUrl(val iface: String, val url: String)
 data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?)
 /** [id] is the deviceId (paired) or the pairing requestId (pending): approve/reject take the request id, remove takes the device id. */
-data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean)
+data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean,
+                         val host: String = "", val lastSeenMs: Long = 0L) {
+    /** What distinguishes two laptops: hostname if the LAN knows one, else the IP; then the client kind. */
+    fun where(): String = host.ifEmpty { remoteIp }.ifEmpty { platform }
+    fun ago(now: Long = System.currentTimeMillis()): String {
+        if (lastSeenMs <= 0) return ""
+        val m = (now - lastSeenMs) / 60_000
+        return when { m < 1 -> "just now"; m < 60 -> "$m min ago"; m < 1440 -> "${m / 60} h ago"; else -> "${m / 1440} d ago" }
+    }
+}
+
+/** Outcome of the last Allow/Deny/Remove on a device, shown in place of a snackbar. */
+enum class DeviceOp { WORKING, OK, FAILED }
 
 /** One env's OpenClaw gateway as seen from inside the env (aohp-gateway status). */
 data class GatewayInfo(
@@ -38,7 +50,8 @@ data class GatewayInfo(
     val error: String? = null,
 )
 
-data class GatewayState(val gateways: List<GatewayInfo> = emptyList(), val busy: String? = null, val message: String? = null)
+data class GatewayState(val gateways: List<GatewayInfo> = emptyList(), val busy: String? = null, val message: String? = null,
+                        val deviceOps: Map<String, DeviceOp> = emptyMap())   // device/request id -> state
 
 /**
  * The gateway's network face: where it is reachable, which certificate it serves, and who is
@@ -59,6 +72,8 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
         client = o.optString("clientId", o.optString("clientMode", "?")),
         remoteIp = o.optString("remoteIp", ""),
         connected = o.optBoolean("connected", false),
+        host = o.optString("host", ""),
+        lastSeenMs = o.optLong("lastSeenAtMs", o.optLong("ts", 0L)),
     )
 
     private fun read(env: String): GatewayInfo {
@@ -105,9 +120,17 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
         return if (r.success) last.ifEmpty { "ok" } else "failed: $last"
     }
 
-    fun approve(env: String, id: String) = action("Approving…") { run(env, "approve $id") }
-    fun reject(env: String, id: String) = action("Rejecting…") { run(env, "reject $id") }
-    fun remove(env: String, id: String) = action("Removing…") { run(env, "remove $id") }
+    /** Per-device action: the button greys to "working", then shows ✓ or ✗ in place; the list refreshes after. */
+    private fun deviceAction(env: String, id: String, args: String) = viewModelScope.launch {
+        _state.update { it.copy(deviceOps = it.deviceOps + (id to DeviceOp.WORKING)) }
+        val msg = try { withContext(Dispatchers.IO) { run(env, args) } } catch (e: Exception) { "failed: " + (e.message ?: e.toString()) }
+        val ok = !msg.startsWith("failed")
+        _state.update { it.copy(deviceOps = it.deviceOps + (id to if (ok) DeviceOp.OK else DeviceOp.FAILED), message = if (ok) null else msg) }
+        refresh()
+    }
+    fun approve(env: String, id: String) = deviceAction(env, id, "approve $id")
+    fun reject(env: String, id: String) = deviceAction(env, id, "reject $id")
+    fun remove(env: String, id: String) = deviceAction(env, id, "remove $id")
     fun consumeMessage() = _state.update { it.copy(message = null) }
 
     /** A pairing URL for a laptop: https://<iface ip>:port/#bootstrapToken=… (10-minute token, fragment only). */

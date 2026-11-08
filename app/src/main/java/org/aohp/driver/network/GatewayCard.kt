@@ -49,6 +49,7 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
     var pairFor by remember { mutableStateOf<Pair<GatewayInfo, PairCode>?>(null) }
     var minting by remember { mutableStateOf(false) }
     var tokenShown by remember { mutableStateOf<Pair<String, String>?>(null) }   // env -> token
+    var removeAsk by remember { mutableStateOf<Pair<String, GatewayDevice>?>(null) }
     LaunchedEffect(st.message) { st.message?.let { onMessage(it); vm.consumeMessage() } }
 
     Card(Modifier.fillMaxWidth()) {
@@ -85,11 +86,14 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                     Spacer(Modifier.height(8.dp))
                     Text("Waiting to pair", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     g.pending.forEach { d ->
+                        val op = st.deviceOps[d.id]
                         Column(Modifier.padding(vertical = 4.dp)) {
-                            Text(d.platform + " · " + d.client + (if (d.remoteIp.isNotEmpty()) " · from " + d.remoteIp else ""), style = MaterialTheme.typography.bodyMedium)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { vm.approve(g.env, d.id) }, enabled = st.busy == null) { Text("Allow") }
-                                OutlinedButton(onClick = { vm.reject(g.env, d.id) }, enabled = st.busy == null) { Text("Deny") }
+                            Text(d.where() + " · " + d.platform + " · " + d.client, style = MaterialTheme.typography.bodyMedium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Button(onClick = { vm.approve(g.env, d.id) }, enabled = op == null || op == DeviceOp.FAILED) {
+                                    Text(when (op) { DeviceOp.WORKING -> "Allowing…"; DeviceOp.OK -> "Allowed ✓"; DeviceOp.FAILED -> "Failed ✗ — retry"; null -> "Allow" })
+                                }
+                                OutlinedButton(onClick = { vm.reject(g.env, d.id) }, enabled = op == null || op == DeviceOp.FAILED) { Text("Deny") }
                             }
                         }
                     }
@@ -97,11 +101,23 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 Spacer(Modifier.height(6.dp))
                 Text("paired devices" + if (g.paired.isEmpty()) ": none" else "", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 g.paired.forEach { d ->
-                    AssistChip(onClick = { if (st.busy == null) vm.remove(g.env, d.id) },
-                        label = { Text((d.label.ifEmpty { d.platform }) + " · " + d.client + (if (d.connected) " ●" else "") + "  ✕") })
+                    val op = st.deviceOps[d.id]
+                    // Label by where it is (hostname or IP) and when it was last seen, so two laptops are told apart.
+                    val label = (d.label.ifEmpty { d.where() }) + " · " + d.client.removePrefix("openclaw-") +
+                            (if (d.connected) " ● now" else d.ago().let { if (it.isEmpty()) "" else " · " + it })
+                    AssistChip(onClick = { if (op != DeviceOp.WORKING) removeAsk = g.env to d },
+                        label = { Text(label + when (op) { DeviceOp.WORKING -> "  …"; DeviceOp.FAILED -> "  ✗"; else -> "  ✕" }) })
                 }
             }
         }
+    }
+
+    removeAsk?.let { (env, d) ->
+        AlertDialog(onDismissRequest = { removeAsk = null },
+            title = { Text("Unpair this device?") },
+            text = { Text(d.where() + " · " + d.platform + " · " + d.client + (if (d.ago().isNotEmpty()) "\nlast seen " + d.ago() else "") + "\n\nIt will need to pair again to connect.") },
+            confirmButton = { TextButton(onClick = { removeAsk = null; vm.remove(env, d.id) }) { Text("Unpair") } },
+            dismissButton = { TextButton(onClick = { removeAsk = null }) { Text("Cancel") } })
     }
 
     pairFor?.let { (g, pc) ->
