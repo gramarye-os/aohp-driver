@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,17 +31,24 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.aohp.driver.ui.KeyValue
 
 /**
- * Runtime-screen card: the OpenClaw gateway's network face per env — reachable URLs, the TLS
- * certificate it serves (fingerprint + QR for a browser), pending pairing requests to approve
- * or reject, and paired devices to remove. See aohp-agents/bin/aohp-gateway.
+ * Runtime-screen card: the OpenClaw gateway's network face per env — reachable URLs (text: they
+ * are short), the TLS certificate it serves, "Pair a browser" (a QR of the URL carrying a
+ * 10-minute bootstrap token in the fragment: scan on a laptop, it lands in the Control UI, then
+ * appears here under "Waiting to pair" for Allow), the shared token on demand, pending pairing
+ * requests, and paired devices. Gateway auth runs before device pairing, so a browser needs the
+ * token (or bootstrap token) first and the Allow tap second. See aohp-agents/bin/aohp-gateway.
  */
 @Composable
 fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewModel()) {
     val st by vm.state.collectAsStateWithLifecycle()
-    var qrFor by remember { mutableStateOf<Pair<GatewayInfo, GatewayUrl>?>(null) }
+    val scope = rememberCoroutineScope()
+    var pairFor by remember { mutableStateOf<Pair<GatewayInfo, PairCode>?>(null) }
+    var minting by remember { mutableStateOf(false) }
+    var tokenShown by remember { mutableStateOf<Pair<String, String>?>(null) }   // env -> token
     LaunchedEffect(st.message) { st.message?.let { onMessage(it); vm.consumeMessage() } }
 
     Card(Modifier.fillMaxWidth()) {
@@ -56,11 +64,22 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 KeyValue("transport", (if (g.tls) "HTTPS / WSS" else "plain HTTP") + " · auth " + g.auth + " · bind " + g.bind)
                 g.urls.forEach { u -> KeyValue(u.iface, u.url, mono = true) }
                 g.fingerprint?.let { KeyValue("cert sha256", it.take(23) + "…", mono = true) }
-                if (g.urls.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        g.urls.take(2).forEach { u -> OutlinedButton(onClick = { qrFor = g to u }) { Text("QR · " + u.iface) } }
-                    }
+                val shown = tokenShown?.takeIf { it.first == g.env }?.second
+                KeyValue("token", shown ?: "••••••••  (tap Show)", mono = true)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(enabled = !minting && st.busy == null, onClick = {
+                        minting = true
+                        scope.launch {
+                            val pc = vm.pairCode(g.env, g.urls.firstOrNull { it.iface == "wlan0" }?.iface ?: g.urls.firstOrNull()?.iface ?: "wlan0")
+                            minting = false
+                            if (pc == null) onMessage("Could not mint a pairing code (is the gateway up?)") else pairFor = g to pc
+                        }
+                    }) { Text(if (minting) "Minting…" else "Pair a browser") }
+                    OutlinedButton(onClick = {
+                        if (shown != null) tokenShown = null
+                        else scope.launch { val t = vm.token(g.env); if (t == null) onMessage("No token in the keystore") else tokenShown = g.env to t }
+                    }) { Text(if (shown != null) "Hide token" else "Show token") }
                 }
                 if (g.pending.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
@@ -85,24 +104,25 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
         }
     }
 
-    qrFor?.let { (g, u) ->
-        val bmp = remember(u.url) { vm.qr(u.url) }
-        AlertDialog(onDismissRequest = { qrFor = null },
-            title = { Text("Open on a laptop") },
+    pairFor?.let { (g, pc) ->
+        val bmp = remember(pc.url) { vm.qr(pc.url) }
+        val minutes = ((pc.expiresAtMs - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
+        AlertDialog(onDismissRequest = { pairFor = null },
+            title = { Text("Pair a browser") },
             text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Image(bmp.asImageBitmap(), contentDescription = u.url, modifier = Modifier.size(260.dp))
+                    Image(bmp.asImageBitmap(), contentDescription = "pairing QR", modifier = Modifier.size(270.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text(u.url, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-                    g.fingerprint?.let {
+                    Text("Scan with the laptop (same Wi-Fi). The link carries a one-time code valid for about " + minutes + " minutes; it admits whoever scans it, so keep the screen to yourself.", style = MaterialTheme.typography.bodySmall)
+                    pc.fingerprint?.let {
                         Spacer(Modifier.height(8.dp))
                         Text("The browser will warn about the certificate. Accept it only if its SHA-256 fingerprint is:", style = MaterialTheme.typography.bodySmall)
                         Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                     }
                     Spacer(Modifier.height(8.dp))
-                    Text("Then come back here: the browser appears under “Waiting to pair” — tap Allow.", style = MaterialTheme.typography.bodySmall)
+                    Text("Then come back here: the browser appears under “Waiting to pair” — tap Allow. After that it has its own device key and never needs the code again.", style = MaterialTheme.typography.bodySmall)
                 }
             },
-            confirmButton = { TextButton(onClick = { qrFor = null }) { Text("Done") } })
+            confirmButton = { TextButton(onClick = { pairFor = null; vm.refresh() }) { Text("Done") } })
     }
 }

@@ -20,6 +20,7 @@ import org.aohp.driver.bridge.AohpContainerClient
 import org.json.JSONObject
 
 data class GatewayUrl(val iface: String, val url: String)
+data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?)
 data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean)
 
 /** One env's OpenClaw gateway as seen from inside the env (aohp-gateway status). */
@@ -106,6 +107,25 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
     fun reject(env: String, id: String) = action("Rejecting…") { run(env, "reject $id") }
     fun remove(env: String, id: String) = action("Removing…") { run(env, "remove $id") }
     fun consumeMessage() = _state.update { it.copy(message = null) }
+
+    /** A pairing URL for a laptop: https://<iface ip>:port/#bootstrapToken=… (10-minute token, fragment only). */
+    suspend fun pairCode(env: String, iface: String = "wlan0"): PairCode? = withContext(Dispatchers.IO) {
+        try {
+            val r = containers.execSync(env, "aohp-gateway pair-code $iface 2>/dev/null", 40_000)
+            val text = (r.output ?: "").trim()
+            if (!r.success || !text.startsWith("{")) return@withContext null
+            val o = JSONObject(text)
+            PairCode(o.getString("url"), o.optLong("expiresAtMs", 0L), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" })
+        } catch (e: Exception) { Log.w(TAG, "pair-code in $env: " + e.message); null }
+    }
+
+    /** The shared gateway token, read from the env's keystore on demand; never stored by the Driver. */
+    suspend fun token(env: String): String? = withContext(Dispatchers.IO) {
+        try {
+            val r = containers.execSync(env, "aohp-gateway token 2>/dev/null", 20_000)
+            (r.output ?: "").trim().takeIf { r.success && it.isNotEmpty() }
+        } catch (e: Exception) { null }
+    }
 
     /** QR of a short text (a URL) as a bitmap; ZXing core, no Play Services. */
     fun qr(text: String, size: Int = 640): Bitmap {
