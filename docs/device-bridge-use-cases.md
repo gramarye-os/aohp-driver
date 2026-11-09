@@ -42,7 +42,7 @@ Bridges: notification(act). Shape: act.
 Needs: notification channels owned by the Driver (importance, sound, quiet
 hours), collapse/rate-limit per channel so the wrist isn't a log tail.
 
-### S2. Ask Chris a question from the wrist, get the answer back
+### S2. Ask Chris a question from the wrist, get the answer back — **PROVEN 2026-10-19** (`sys.notify reply=true` → Fenix canned reply → `sys.notify_replies` drain in `oc`, correlationId intact). Finding: Gadgetbridge offers its own per-device canned-reply list to Garmin watches, not the `RemoteInput` choices — set the vocabulary in Gadgetbridge → device → Canned replies.
 Agent posts a `MessagingStyle` notification with a `RemoteInput` reply
 action ("deploy raims 1.54 to www? y/n"). Chris answers from the watch or
 the shade. The reply arrives as `{type:"notification.reply", id, text}` →
@@ -51,6 +51,9 @@ Bridges: notification(act + push). Shape: act then push.
 Needs: a notification id ↔ session/conversation map in the channel plugin;
 dismiss events too ("he swiped it away" = no answer); replay if the env was
 down when the reply came.
+Done in 0.6.0: delete intent → `kind:"dismiss"` event; 500-entry ring buffer
+with monotonic `seq` + `after=` cursor + long-poll (`waitMs` ≤ 120 s). Not
+done: ws push (clients still drain), per-env grants, the channel plugin.
 
 ### S3. Every messaging app's inbound, one listener
 WhatsApp/Signal/Telegram/Slack/SMS post notifications. The Driver's

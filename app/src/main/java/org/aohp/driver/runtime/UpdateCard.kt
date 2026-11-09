@@ -28,7 +28,7 @@ private fun ago(ms: Long, now: Long = System.currentTimeMillis()): String {
 }
 
 /**
- * Runtime-screen card: is the env's tooling current? aohp-agents checkout vs origin, bin/* installed
+ * Runtime-screen card: is the env's tooling current? aohp-agents checkout vs origin, the scripts installed
  * from it, the config repo vs origin, where the GitHub token for that private repo comes from, and
  * the last update's outcome. Update runs aohp-update in the env (pull, install, installers).
  */

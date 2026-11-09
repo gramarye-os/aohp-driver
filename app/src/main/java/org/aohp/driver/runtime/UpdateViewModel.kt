@@ -48,7 +48,7 @@ data class UpdateState(val envs: List<UpdateInfo> = emptyList(), val refreshing:
                        val ops: Map<String, UpdateOp> = emptyMap(), val results: Map<String, String> = emptyMap(), val message: String? = null)
 
 /**
- * The Runtime tab's Updates card: per env, whether aohp-agents / its installed bin/* / the config
+ * The Runtime tab's Updates card: per env, whether aohp-agents, the scripts installed from it, and the config
  * repo are current, whether the config pull has a GitHub token to use (the Keys tab's GITHUB_TOKEN,
  * granted to the env), and an Update button that runs aohp-update over containerd EXEC. The
  * Driver never sees the token: aohp-update fetches it from the broker for its own process only.
