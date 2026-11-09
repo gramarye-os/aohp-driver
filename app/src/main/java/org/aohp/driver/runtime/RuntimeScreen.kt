@@ -86,6 +86,7 @@ fun RuntimeScreen(modifier: Modifier = Modifier, vm: RuntimeViewModel = viewMode
                     item { ContainerdCard(st) }
                     item { BridgeCard(st, onStart = { vm.startBridge() }, onStop = { vm.stopBridge() }, onImport = { vm.importLegacySecrets() }) }
                     item { GatewayCard() }
+                    item { UpdateCard() }
                     items(st.envs, key = { it.name }) { env ->
                         EnvCardView(env, selected = env.name == st.selected, busy = st.busy != null,
                             autostart = env.name !in st.autostartOff, onAutostart = { vm.setAutostart(env.name, it) },
