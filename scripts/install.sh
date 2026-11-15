@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Chris Anderson
+# SPDX-License-Identifier: Apache-2.0
 # Build + platform-sign + install + launch on the test phone.
 # usage: scripts/install.sh [adb-serial]   (default e6d11a7c)
 set -euo pipefail

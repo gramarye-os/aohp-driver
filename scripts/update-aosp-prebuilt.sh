@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Chris Anderson
+# SPDX-License-Identifier: Apache-2.0
 # Build the AOHP Driver APK and copy it into the AOSP tree as the prebuilt consumed by
 # packages/apps/AOHPDriver/Android.bp (android_app_import, certificate: "platform").
 #

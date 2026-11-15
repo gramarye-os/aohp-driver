@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Chris Anderson
+# SPDX-License-Identifier: Apache-2.0
 # Sign an APK with the AOSP tree's platform key (never copied into this repo).
 # usage: scripts/sign-platform.sh <in.apk> <out.apk>
 set -euo pipefail
