@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright (C) 2026 Chris Anderson
+// SPDX-License-Identifier: Apache-2.0
 /*
  * cred-list.js — list the providers this caller may obtain from the AOHP credential broker, with
  * each one's status (docs/CREDENTIALS.md). cred.list shows only providers the caller is granted;

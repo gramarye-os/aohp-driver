@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright (C) 2026 Chris Anderson
+// SPDX-License-Identifier: Apache-2.0
 /*
  * cred-set.js — store a provider credential in the AOHP credential broker (docs/CREDENTIALS.md §3).
  *

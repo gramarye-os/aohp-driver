@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// Copyright (C) 2026 Chris Anderson
+// SPDX-License-Identifier: Apache-2.0
 /*
  * cred-providers.js — read or push the AOHP credential broker's provider catalog (providers.json).
  *

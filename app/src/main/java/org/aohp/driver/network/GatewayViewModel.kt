@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Chris Anderson
+// SPDX-License-Identifier: Apache-2.0
+
 package org.aohp.driver.network
 
 import android.app.Application
