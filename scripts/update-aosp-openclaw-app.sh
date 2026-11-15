@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Copyright (C) 2026 Chris Anderson
+# SPDX-License-Identifier: Apache-2.0
 # Copy a *release-signed* OpenClaw Android APK into the AOSP tree as the prebuilt consumed by
 # packages/apps/OpenClawAndroid/Android.bp (android_app_import, preprocessed: true => Soong
 # only validates and copies it, never re-signs). Validates alignment and signature first.

@@ -1,0 +1,61 @@
+AOHP Driver
+Copyright (C) 2026 Chris Anderson
+
+This repository is licensed under the Apache License, Version 2.0 (see LICENSE),
+except for what is listed below. Source files and scripts that are ours say so in
+their first lines (SPDX-License-Identifier: Apache-2.0).
+
+
+Not covered by the Apache License: code ported from AOHPAgentDriverApp
+======================================================================
+
+The files below were ported from the stock driver app of the Android Open
+Harness Project, https://github.com/aohp-os/AOHPAgentDriverApp (package
+org.aohp.agentdriver.executor), so that this app answers the same agent bridge
+protocol. That repository states no licence. Its authors keep all rights in
+their code, and nothing here grants any right to it. Each file says so in its
+first lines.
+
+  app/src/main/java/org/aohp/driver/bridge/ShellExecutor.java
+  app/src/main/java/org/aohp/driver/bridge/AohpVdClient.java
+  app/src/main/java/org/aohp/driver/bridge/AohpAgentViewClient.java
+  app/src/main/java/org/aohp/driver/bridge/AohpEventStreamClient.java
+  app/src/main/java/org/aohp/driver/bridge/AohpSecurityBridgeClient.java
+  app/src/main/java/org/aohp/driver/bridge/CgroupUsage.java
+      as upstream's, but for the package and import lines.
+  app/src/main/java/org/aohp/driver/bridge/AohpContainerClient.java
+  app/src/main/java/org/aohp/driver/bridge/BridgeWebSocketServer.java
+  app/src/main/java/org/aohp/driver/bridge/JsonCommandHandler.java
+      upstream's, with changes and additions made here since the port
+      (commit b630bce, 2026-10-02; the history of each file shows them).
+
+What was changed or added in those files in this repository is offered under
+the Apache License 2.0, as far as it can be told apart from upstream's code.
+A few lines elsewhere follow upstream's as well: the encrypted-preferences
+setup in bridge/SecretStore.java, and declarations the bridge needs in
+AndroidManifest.xml and res/xml/accessibility_service_config.xml.
+
+An author of AOHPAgentDriverApp who wants this handled another way is asked to
+open an issue on this repository.
+
+
+Third-party components shipped in this repository
+=================================================
+
+app/src/main/aidl/com/android/internal/aohp/*.aidl
+    Interfaces of the AOHP platform services. Copyright (C) 2026 The Android
+    Open Source Project, Apache License 2.0 (stated in each file).
+
+app/src/main/assets/term/xterm.js, xterm.css, addon-fit.js
+    xterm.js 6.0.0, https://github.com/xtermjs/xterm.js. Copyright (c) 2014
+    The xterm.js authors, Copyright (c) 2012-2013 Christopher Jeffrey,
+    Copyright (c) 2011 Fabrice Bellard. MIT License (stated in xterm.css).
+
+app/src/main/jniLibs/arm64-v8a/*.so
+    llama-server and the ggml backends, built from llama.cpp,
+    https://github.com/ggml-org/llama.cpp, Copyright (c) The ggml authors,
+    MIT License, with the two local patches docs/llm.md describes.
+    The libggml-htp-v*.so files are built with Qualcomm's Hexagon SDK.
+
+gradlew, gradle/wrapper/*
+    The Gradle wrapper. Apache License 2.0.

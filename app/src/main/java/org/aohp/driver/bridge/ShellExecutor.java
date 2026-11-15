@@ -1,3 +1,8 @@
+// Ported from AOHPAgentDriverApp (https://github.com/aohp-os/AOHPAgentDriverApp), which states
+// no licence: this file is NOT under this repository's Apache-2.0 licence, and its upstream
+// authors keep all rights in their code. See NOTICE. What was changed or added here is
+// Copyright (C) 2026 Chris Anderson, under Apache-2.0 as far as it can be told apart.
+
 package org.aohp.driver.bridge;
 
 import android.app.ActivityOptions;

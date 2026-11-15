@@ -297,3 +297,10 @@ v1:
   shows a spinner until it returns.
 - The terminal's "Enter" is the IME's enter key; there is no Enter in the extra
   key row.
+
+## License
+
+AOHP Driver is licensed under the [Apache License, Version 2.0](LICENSE), except for the agent
+bridge code ported from the stock [AOHPAgentDriverApp](https://github.com/aohp-os/AOHPAgentDriverApp),
+which states no licence and is not ours to license. [NOTICE](NOTICE) lists those files and the
+third-party components shipped with the app (xterm.js, llama.cpp).
