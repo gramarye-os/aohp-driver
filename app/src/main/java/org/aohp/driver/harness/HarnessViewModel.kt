@@ -59,6 +59,10 @@ data class HarnessState(
     val bootstrapRepo: String = org.aohp.driver.Settings.DEFAULT_REPO,
 )
 
+/** Where a bootstrap's age passphrase waits: a temporary Keystore name, and the file the env reads it into. */
+private const val PP_SECRET = "AOHP_SETUP_AGE_PASSPHRASE"
+private const val PP_FILE = "/tmp/.aohp-pp"
+
 class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     private val svc = (app as DriverApp).containers
     private val registry = (app as DriverApp).services
@@ -198,15 +202,23 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
      * to a log file inside the env and poll it with short execSyncs while the
      * long call is in flight.
      */
-    fun bootstrap(repo: String) {
+    fun bootstrap(repo: String, passphrase: String = "") {
         val env = _state.value.env ?: return
         if (_state.value.bootstrap?.running == true) return
+        // There is no terminal to ask in. As in the setup wizard, the passphrase never enters the command
+        // line: it is parked in the Keystore, the env reads it into a 0600 file, and both are removed after.
+        val store = org.aohp.driver.bridge.SecretStore(getApplication())
+        val havePp = passphrase.isNotEmpty()
+        if (havePp) store.set(PP_SECRET, passphrase)
+        val pre = if (havePp) "umask 077; rm -f $PP_FILE; aohp secret get $PP_SECRET > $PP_FILE || exit 4; " else ""
+        val args = "'" + repo.replace("'", "") + "'" + if (havePp) " --secrets age --passphrase-file $PP_FILE" else ""
         viewModelScope.launch { settings.setBootstrapRepo(repo) }
         val logFile = "/tmp/aohp-bootstrap.log"
         _state.update { it.copy(bootstrap = BootstrapRun(repo, true, System.currentTimeMillis(), "$ aohp-bootstrap $repo\n")) }
         val main = viewModelScope.launch {
-            val cmd = "rm -f $logFile; (aohp-bootstrap '" + repo.replace("'", "") + "') >$logFile 2>&1; ec=\$?; echo \"__EXIT__=\$ec\" >> $logFile; exit \$ec"
+            val cmd = "rm -f $logFile; ( " + pre + "aohp-bootstrap " + args + " ) >$logFile 2>&1; ec=\$?; rm -f $PP_FILE; echo \"__EXIT__=\$ec\" >> $logFile; exit \$ec"
             val r = svc.execSync(env, cmd, 30 * 60 * 1000)
+            if (havePp) store.delete(PP_SECRET)
             val ec = r.getOrNull()?.exitCode ?: -1
             val tail = r.getOrNull()?.let { if (!it.ok && it.stderr.isNotEmpty()) "\n" + it.stderr else "" } ?: ("\n" + r.exceptionOrNull()?.message)
             // final read of the log

@@ -92,7 +92,7 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
             Spacer(Modifier.height(24.dp))
         }
     }
-    if (showBootstrap) BootstrapDialog(st.bootstrapRepo, onDismiss = { showBootstrap = false }) { repo -> showBootstrap = false; vm.bootstrap(repo) }
+    if (showBootstrap) BootstrapDialog(st.bootstrapRepo, onDismiss = { showBootstrap = false }) { repo, passphrase -> showBootstrap = false; vm.bootstrap(repo, passphrase) }
     st.bootstrap?.let { b -> BootstrapProgressDialog(b, onDismiss = { if (!b.running) vm.dismissBootstrap() }) }
 }
 
@@ -282,16 +282,20 @@ private fun SecretsCard(st: HarnessState, vm: HarnessViewModel) {
 }
 
 @Composable
-private fun BootstrapDialog(initialRepo: String, onDismiss: () -> Unit, onRun: (String) -> Unit) {
+private fun BootstrapDialog(initialRepo: String, onDismiss: () -> Unit, onRun: (String, String) -> Unit) {
     var repo by remember { mutableStateOf(initialRepo) }
+    var passphrase by remember { mutableStateOf("") }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Bootstrap harness") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Runs  aohp-bootstrap <repo>  inside the env (clones the config repo, installs OpenClaw, writes config). Can take several minutes.")
                 OutlinedTextField(repo, { repo = it }, label = { Text("GitHub user/repo") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                // Bootstrap has no terminal here to ask for it.
+                OutlinedTextField(passphrase, { passphrase = it }, label = { Text("age passphrase (if the repo's secrets are age-encrypted)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
             }
         },
-        confirmButton = { Button(enabled = repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")), onClick = { onRun(repo.trim()) }) { Text("Run") } },
+        confirmButton = { Button(enabled = repo.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")), onClick = { onRun(repo.trim(), passphrase) }) { Text("Run") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
