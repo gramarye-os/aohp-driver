@@ -87,6 +87,29 @@ public final class CredentialAcl {
         if (provs != null) { provs.remove(provider); persist(); }
     }
 
+    /** Take every grant from a principal; returns the providers it had. */
+    public synchronized Set<String> revokeAll(@NonNull String principal) {
+        load();
+        Set<String> provs = grants.remove(principal);
+        if (provs == null || provs.isEmpty()) return Collections.emptySet();
+        persist();
+        return provs;
+    }
+
+    /**
+     * An env was destroyed or reset. Its grants are tied to its name, so without this a new env made
+     * under the same name would get the old one's keys with nobody asked, and the Keys tab would show
+     * it as allowed.
+     */
+    public static Set<String> forgetEnv(@NonNull android.content.Context ctx, @NonNull String env, @NonNull String why) {
+        String principal = "env:" + env;
+        Set<String> gone = new CredentialAcl(new SecretStore(ctx.getApplicationContext())).revokeAll(principal);
+        for (String p : gone) {
+            android.util.Log.i("AohpCredAudit", "REVOKE provider=" + p + " principal=" + principal + " by=" + why);
+        }
+        return gone;
+    }
+
     /** Snapshot of every grant: principal -> providers. */
     public synchronized Map<String, Set<String>> all() {
         load();

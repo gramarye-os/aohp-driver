@@ -1845,11 +1845,13 @@ public final class JsonCommandHandler {
     private JSONObject sandboxDestroy(JSONObject p) throws JSONException {
         ShellExecutor.CommandResult r = mContainer.destroyContainer(p.getString("name"));
         org.aohp.driver.ServiceRegistry.get(mContext).forgetEnv(p.getString("name"));
+        if (r.success) CredentialAcl.forgetEnv(mContext, p.getString("name"), "env-removed");
         return crToJson(r);
     }
 
     private JSONObject sandboxReset(JSONObject p) throws JSONException {
         ShellExecutor.CommandResult r = mContainer.resetContainer(p.getString("name"));
+        if (r.success) CredentialAcl.forgetEnv(mContext, p.getString("name"), "env-reset");
         return crToJson(r);
     }
 

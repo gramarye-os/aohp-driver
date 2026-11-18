@@ -135,14 +135,14 @@ private fun CredCard(r: CredRow, envs: List<String>, busy: Boolean,
             KeyValue("stored", when (r.kind) { null -> "no"; "oauth" -> "yes (OAuth sign-in)"; else -> "yes (API key)" })
             if (r.grants.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Text("allowed", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("may use this key", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     r.grants.forEach { p -> AssistChip(onClick = { if (!busy) onRevoke(p) }, label = { Text(p + "  ✕") }) }
                 }
             }
             if (r.enabledIn.isNotEmpty()) {
                 Spacer(Modifier.height(6.dp))
-                Text("used by OpenClaw in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("in use by OpenClaw in", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     r.enabledIn.forEach { e -> AssistChip(onClick = { if (!busy) onDisable(e) }, label = { Text("env:$e  ✕") }) }
                 }

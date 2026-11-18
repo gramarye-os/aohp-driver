@@ -128,12 +128,17 @@ class RuntimeViewModel(app: Application) : AndroidViewModel(app) {
         if (r.isEmpty()) "Created $name" else throw RuntimeException(r)
     }
 
+    /** A reset or destroyed env loses its key permissions: a new env under the same name must be allowed again. */
+    private fun forgetKeys(name: String, why: String) {
+        runCatching { org.aohp.driver.bridge.CredentialAcl.forgetEnv(getApplication(), name, why) }
+    }
+
     fun reset(name: String) = action("Resetting $name…") {
-        if (svc.resetContainer(name).getOrThrow()) "Reset $name" else throw RuntimeException("resetContainer returned false")
+        if (svc.resetContainer(name).getOrThrow()) { forgetKeys(name, "env-reset"); "Reset $name" } else throw RuntimeException("resetContainer returned false")
     }
 
     fun destroy(name: String) = action("Destroying $name…") {
-        if (svc.destroyContainer(name).getOrThrow()) { (getApplication<DriverApp>()).services.forgetEnv(name); "Destroyed $name" }
+        if (svc.destroyContainer(name).getOrThrow()) { (getApplication<DriverApp>()).services.forgetEnv(name); forgetKeys(name, "env-removed"); "Destroyed $name" }
         else throw RuntimeException("destroyContainer returned false")
     }
 

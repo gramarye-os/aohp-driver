@@ -76,8 +76,13 @@ class CredentialsViewModel(app: Application) : AndroidViewModel(app) {
             val ids = LinkedHashSet<String>()
             CredentialBroker.knownProviders().forEach { ids += it.id }
             ids += stored
-            val all = acl.all()
             val envList = containers.listContainers()?.toList()?.sorted() ?: emptyList()
+            // A permission for an env that is gone would show as allowed here, and a new env under that name
+            // would inherit it. Drop it. An empty list can also mean the container service did not answer,
+            // so nothing is dropped then.
+            if (envList.isNotEmpty()) acl.all().keys.filter { it.startsWith("env:") && it.removePrefix("env:") !in envList }
+                .forEach { CredentialAcl.forgetEnv(getApplication(), it.removePrefix("env:"), "env-missing") }
+            val all = acl.all()
             val enabled = enabledByEnv(envList)
             ids.map { id ->
                 val k = CredentialBroker.known(id)

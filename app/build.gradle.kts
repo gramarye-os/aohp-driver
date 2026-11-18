@@ -17,7 +17,7 @@ android {
         manifestPlaceholders["appAuthRedirectScheme"] = "aohp"
         minSdk = 34
         targetSdk = 36
-        versionCode = 33
+        versionCode = 34
         versionName = "0.9.0"
         ndk { abiFilters += "arm64-v8a" }
     }
