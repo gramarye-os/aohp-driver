@@ -84,6 +84,12 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- A pairing code for the launcher this image ships; the provider checks the caller itself. -->
+        <provider
+            android:name=".pairing.PairingProvider"
+            android:authorities="org.aohp.driver.pairing"
+            android:exported="true" />
+
         <receiver
             android:name=".bridge.BootReceiver"
             android:exported="true"
