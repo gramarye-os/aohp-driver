@@ -31,6 +31,8 @@ class Settings(private val ctx: Context) {
         /** 0.5.0: autostart is ON by default; this set holds the envs the user switched OFF. */
         val AUTOSTART_OFF_ENVS = stringSetPreferencesKey("autostart_off_envs")
         val BRIDGE_ENABLED = booleanPreferencesKey("bridge_enabled")
+        /** Set once this phone was given its first env at boot, or was found to have envs already. */
+        val FIRST_ENV_OFFERED = booleanPreferencesKey("first_env_offered")
     }
     /**
      * Envs the boot receiver must NOT start. Since 0.5.0 every env autostarts (env-start /
@@ -50,6 +52,8 @@ class Settings(private val ctx: Context) {
     /** Whether the app should bring the bridge up when it starts (default true). */
     val bridgeEnabled: Flow<Boolean> = ctx.dataStore.data.map { it[BRIDGE_ENABLED] ?: true }
     suspend fun setBridgeEnabled(v: Boolean) = ctx.dataStore.edit { it[BRIDGE_ENABLED] = v }
+    suspend fun firstEnvOffered(): Boolean = ctx.dataStore.data.first()[FIRST_ENV_OFFERED] ?: false
+    suspend fun setFirstEnvOffered() = ctx.dataStore.edit { it[FIRST_ENV_OFFERED] = true }
     val selectedEnv: Flow<String?> = ctx.dataStore.data.map { it[SELECTED_ENV] }
     suspend fun setSelectedEnv(name: String?) = ctx.dataStore.edit { p -> if (name == null) p.remove(SELECTED_ENV) else p[SELECTED_ENV] = name }
     val bootstrapRepo: Flow<String> = ctx.dataStore.data.map { it[BOOTSTRAP_REPO] ?: DEFAULT_REPO }

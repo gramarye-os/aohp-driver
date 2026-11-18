@@ -63,6 +63,9 @@ class BridgeService : Service() {
         const val ACTION_STOP = "org.aohp.driver.bridge.STOP"
         /** Set on ACTION_START from the boot receiver: also autostart gateways. */
         const val EXTRA_AUTOSTART = "autostart"
+        /** The env a new phone is given at its first boot, and the template it is made from: the first-run wizard's defaults. */
+        const val FIRST_ENV = "oc"
+        const val FIRST_TEMPLATE = "debian"
         const val EXTRA_PORT = "port"
         private const val CHANNEL = "aohp_bridge"
         private const val NOTIF_ID = 1
@@ -304,10 +307,11 @@ class BridgeService : Service() {
             _state.value = _state.value.copy(autostartLog = log.toString())
             return
         }
+        containers = offerFirstEnv(app, containers, log)
         // 0.5.0: every env autostarts unless its switch was turned off.
         val envs = containers.filter { app.settings.isAutostart(it, off) }.sorted()
         if (envs.isEmpty()) {
-            _state.value = _state.value.copy(autostartLog = if (containers.isEmpty()) "autostart: no envs" else "autostart: all envs switched off")
+            _state.value = _state.value.copy(autostartLog = log.toString() + if (containers.isEmpty()) "autostart: no envs" else "autostart: all envs switched off")
             return
         }
         for (env in envs) {
@@ -337,6 +341,37 @@ class BridgeService : Service() {
         }
         Log.i(TAG, "autostart: " + log.toString().trim().replace('\n', ';'))
         _state.value = _state.value.copy(autostartLog = log.toString().trim())
+    }
+
+    /**
+     * A phone with no env yet is given the one the first-run wizard would make ([FIRST_ENV] from
+     * the image's [FIRST_TEMPLATE]), so it is usable without the wizard: the env's units (the
+     * Tessera agent, the gateway) are started right after by the autostart pass. Offered once: an
+     * env the user deletes later is not made again at the next boot, and a phone that already has
+     * envs is never given another. Returns the envs there are now.
+     */
+    private suspend fun offerFirstEnv(app: DriverApp, containers: List<String>, log: StringBuilder): List<String> {
+        if (app.settings.firstEnvOffered()) return containers
+        if (containers.isNotEmpty()) {
+            app.settings.setFirstEnvOffered()
+            return containers
+        }
+        if (FIRST_TEMPLATE !in app.containers.listTemplates()) {
+            log.append("first env: this image has no $FIRST_TEMPLATE template\n")
+            return containers
+        }
+        Log.i(TAG, "first env: creating $FIRST_ENV from $FIRST_TEMPLATE")
+        val error = app.containers.createContainer(FIRST_ENV, FIRST_TEMPLATE).fold({ it }, { it.message ?: "failed" })
+        if (error.isNotEmpty()) {
+            Log.w(TAG, "first env: create failed: $error")
+            log.append("first env: create failed: $error\n")
+            return containers
+        }
+        app.settings.setFirstEnvOffered()
+        if (app.settings.selectedEnv.first() == null) app.settings.setSelectedEnv(FIRST_ENV)
+        Log.i(TAG, "first env: created $FIRST_ENV from $FIRST_TEMPLATE")
+        log.append("first env: created $FIRST_ENV from $FIRST_TEMPLATE\n")
+        return app.containers.listContainers().getOrNull() ?: listOf(FIRST_ENV)
     }
 
     override fun onDestroy() {
