@@ -28,7 +28,9 @@ data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: Str
 data class CertInfo(val cn: String, val names: List<String>, val ips: List<String>, val notAfter: String, val covers: Boolean, val missing: List<String>)
 /** [id] is the deviceId (paired) or the pairing requestId (pending): approve/reject take the request id, remove takes the device id. */
 data class GatewayDevice(val id: String, val label: String, val platform: String, val client: String, val remoteIp: String, val connected: Boolean,
-                         val host: String = "", val lastSeenMs: Long = 0L) {
+                         val host: String = "", val lastSeenMs: Long = 0L,
+                         /** A paired app asking to act as a node (first time, or its permissions changed): same Allow, another command. */
+                         val node: Boolean = false, val reapproval: Boolean = false) {
     /** What distinguishes two laptops: hostname if the LAN knows one, else the IP; then the client kind. */
     fun where(): String = host.ifEmpty { remoteIp }.ifEmpty { platform }
     fun ago(now: Long = System.currentTimeMillis()): String {
@@ -80,6 +82,7 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
         connected = o.optBoolean("connected", false),
         host = o.optString("host", ""),
         lastSeenMs = o.optLong("lastSeenAtMs", o.optLong("ts", 0L)),
+        node = o.optString("kind") == "node", reapproval = o.optBoolean("reapproval", false),
     )
 
     private fun read(env: String): GatewayInfo {

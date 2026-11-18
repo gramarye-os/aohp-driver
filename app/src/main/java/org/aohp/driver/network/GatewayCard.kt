@@ -114,6 +114,8 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         val op = st.deviceOps[d.id]
                         Column(Modifier.padding(vertical = 4.dp)) {
                             Text(d.where() + " · " + d.platform + " · " + d.client, style = MaterialTheme.typography.bodyMedium)
+                            if (d.node) Text(if (d.reapproval) "Already paired. Its phone permissions changed and need your OK." else "Already paired. It asks to let the agent use this phone (notifications, contacts, …).",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Button(onClick = { vm.approve(g.env, d.id) }, enabled = op == null || op == DeviceOp.FAILED) {
                                     Text(when (op) { DeviceOp.WORKING -> "Allowing…"; DeviceOp.OK -> "Allowed ✓"; DeviceOp.FAILED -> "Failed ✗ — retry"; null -> "Allow" })
