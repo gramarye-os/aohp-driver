@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.aohp.driver.network.GatewayCard
@@ -65,6 +66,11 @@ fun RuntimeScreen(modifier: Modifier = Modifier, vm: RuntimeViewModel = viewMode
     var destroyTarget by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(st.message) { st.message?.let { snack.showSnackbar(it); vm.consumeMessage() } }
+    // Refresh only while this tab is on screen.
+    LifecycleResumeEffect(Unit) {
+        vm.startPolling()
+        onPauseOrDispose { vm.stopPolling() }
+    }
 
     Scaffold(
         modifier = modifier,

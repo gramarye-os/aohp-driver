@@ -66,8 +66,22 @@ class RuntimeViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { BridgeService.state.collect { b -> _state.update { it.copy(bridge = b) }; refreshSecrets() } }
         viewModelScope.launch { settings.autostartOffEnvs.collect { a -> _state.update { it.copy(autostartOff = a) } } }
         refresh()
-        autoJob = viewModelScope.launch { while (true) { delay(10_000); if (_state.value.busy == null) refresh(quiet = true) } }
     }
+
+    /**
+     * The 10 s refresh of the env cards. RuntimeScreen starts it when the tab comes on screen and
+     * stops it when it leaves: a status nobody is looking at needs no refreshing, and the Driver's
+     * bridge keeps the CPU awake, so a loop left running would run all night.
+     */
+    fun startPolling() {
+        if (autoJob?.isActive == true) return
+        autoJob = viewModelScope.launch {
+            refresh(quiet = true)
+            while (true) { delay(10_000); if (_state.value.busy == null) refresh(quiet = true) }
+        }
+    }
+
+    fun stopPolling() { autoJob?.cancel(); autoJob = null }
 
     fun refresh(quiet: Boolean = false) = viewModelScope.launch {
         if (!quiet) _state.update { it.copy(refreshing = true) }

@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import org.aohp.driver.Tab
@@ -65,6 +66,11 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
     val snack = remember { SnackbarHostState() }
     var showBootstrap by remember { mutableStateOf(false) }
     LaunchedEffect(st.message) { st.message?.let { snack.showSnackbar(it); vm.consumeMessage() } }
+    // Refresh only while this tab is on screen.
+    LifecycleResumeEffect(Unit) {
+        vm.startPolling()
+        onPauseOrDispose { vm.stopPolling() }
+    }
 
     Scaffold(
         modifier = modifier,

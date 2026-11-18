@@ -74,10 +74,21 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     init {
         viewModelScope.launch { settings.selectedEnv.collect { e -> _state.update { it.copy(env = e, services = emptyList(), log = "", secrets = null) }; refresh(); loadSecrets() } }
         viewModelScope.launch { settings.bootstrapRepo.collect { r -> _state.update { it.copy(bootstrapRepo = r) } } }
+    }
+
+    /**
+     * The 4 s refresh of services, units and the gateway probe. HarnessScreen starts it when the tab
+     * comes on screen and stops it when it leaves (see RuntimeViewModel.startPolling).
+     */
+    fun startPolling() {
+        if (pollJob?.isActive == true) return
         pollJob = viewModelScope.launch {
+            if (_state.value.busy == null) refresh()
             while (isActive) { delay(4_000); if (_state.value.busy == null) { refresh(); } }
         }
     }
+
+    fun stopPolling() { pollJob?.cancel(); pollJob = null }
 
     fun refresh() = viewModelScope.launch {
         val env = _state.value.env ?: return@launch
