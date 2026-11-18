@@ -41,14 +41,29 @@
   window.termFocus = function() { term.focus(); };
   window.termPaste = function(txt) { term.paste(txt); };
 
-  var lastCols = 0, lastRows = 0;
+  // The shell learns its size by having "stty cols N rows M" typed into it (the daemon has no resize call yet).
+  // Typed into a half-written command line that text is appended to the command and run with it, so the size
+  // is only sent when the cursor sits at an empty shell prompt; otherwise it waits for the next output.
+  var wantCols = 0, wantRows = 0, sentCols = 0, sentRows = 0, sizeTimer = null;
+  function atEmptyPrompt() {
+    var b = term.buffer.active; if (b.type !== 'normal') return false;
+    var l = b.getLine(b.baseY + b.cursorY); if (!l) return false;
+    // The prompt's own trailing space is a written cell, so translateToString does not trim it.
+    var s = l.translateToString(true).replace(/\s+$/, '');
+    return /[#$%]$/.test(s) && b.cursorX >= s.length;
+  }
+  function sendSize() {
+    sizeTimer = null;
+    if (!window.AohpTerm || (wantCols === sentCols && wantRows === sentRows) || !atEmptyPrompt()) return;
+    sentCols = wantCols; sentRows = wantRows; AohpTerm.onResize(wantCols, wantRows);
+  }
+  function queueSize() { if (sizeTimer) clearTimeout(sizeTimer); sizeTimer = setTimeout(sendSize, 400); }
   function doFit() {
     try { fit.fit(); } catch (e) { return; }
-    if (term.cols !== lastCols || term.rows !== lastRows) {
-      lastCols = term.cols; lastRows = term.rows;
-      if (window.AohpTerm) AohpTerm.onResize(term.cols, term.rows);
-    }
+    wantCols = term.cols; wantRows = term.rows;
+    if (wantCols !== sentCols || wantRows !== sentRows) queueSize();
   }
+  term.onWriteParsed(function() { if (wantCols !== sentCols || wantRows !== sentRows) queueSize(); });
   window.termFit = doFit;
   term.onData(function(d) { if (window.AohpTerm) AohpTerm.onInput(d); });
   term.onBinary(function(d) { if (window.AohpTerm) AohpTerm.onBinary(d); });
@@ -57,6 +72,43 @@
   setTimeout(doFit, 0);
   setTimeout(doFit, 300);
   if (window.AohpTerm) AohpTerm.onReady();
+  // Scrolling with a finger. This xterm.js build has none of its own: its scrollbar only follows a mouse.
+  // A drag moves the scrollback one line per line height, with a short fling when the finger lifts.
+  // Full-screen programs (less, man) have no scrollback, so there the drag sends arrow keys.
+  (function(){
+    var el = document.getElementById('term'), lastY = null, lastT = 0, acc = 0, vel = 0, raf = 0;
+    function lineH() { var h = (el.clientHeight - 8) / (term.rows || 24); return h > 4 ? h : 16; }
+    function move(dy) {
+      acc += dy; var h = lineH(), n = acc > 0 ? Math.floor(acc / h) : Math.ceil(acc / h);
+      if (!n) return; acc -= n * h;
+      if (term.buffer.active.type === 'alternate') {
+        var k = '\x1b' + (term.modes.applicationCursorKeysMode ? 'O' : '[') + (n > 0 ? 'B' : 'A'), s = '';
+        for (var i = 0; i < Math.abs(n); i++) s += k;
+        if (window.AohpTerm) AohpTerm.onInput(s);
+      } else term.scrollLines(n);
+    }
+    el.addEventListener('touchstart', function(e) {
+      if (raf) { cancelAnimationFrame(raf); raf = 0; }
+      if (e.touches.length !== 1) { lastY = null; return; }
+      lastY = e.touches[0].clientY; lastT = e.timeStamp; acc = 0; vel = 0;
+    }, { passive: true });
+    el.addEventListener('touchmove', function(e) {
+      if (lastY === null || e.touches.length !== 1) return;
+      var y = e.touches[0].clientY, dy = lastY - y, dt = Math.max(1, e.timeStamp - lastT);
+      vel = 0.7 * (dy / dt) + 0.3 * vel; lastY = y; lastT = e.timeStamp;
+      move(dy); e.preventDefault();
+    }, { passive: false });
+    el.addEventListener('touchend', function(e) {
+      if (lastY === null) return; lastY = null;
+      if (e.timeStamp - lastT > 80 || Math.abs(vel) < 0.3 || term.buffer.active.type === 'alternate') return;
+      var prev = 0;
+      function step(t) {
+        if (prev) { move(vel * (t - prev)); vel *= Math.pow(0.996, t - prev); }
+        prev = t; raf = Math.abs(vel) > 0.03 ? requestAnimationFrame(step) : 0;
+      }
+      raf = requestAnimationFrame(step);
+    }, { passive: true });
+  })();
   // Tapping the terminal area should bring up the soft keyboard.
   document.getElementById('term').addEventListener('click', function(){ term.focus(); });
 })();

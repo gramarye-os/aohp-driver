@@ -54,9 +54,9 @@ import org.aohp.driver.ui.CenteredMessage
 private const val TERM_URL = "https://appassets.androidplatform.net/assets/term/index.html"
 private const val TAG = "AohpDriver"
 
-/** Extra-key row: label → bytes sent to the pty ("Ctrl"/"Alt" are sticky modifiers). */
+/** Extra-key row: label → bytes sent to the pty ("Ctrl"/"Alt" are sticky modifiers; "Paste" sends the clipboard). */
 private val EXTRA_KEYS: List<Pair<String, String>> = listOf(
-    "Esc" to "\u001b", "Tab" to "\t", "Ctrl" to "", "Alt" to "",
+    "Paste" to "", "Esc" to "\u001b", "Tab" to "\t", "Ctrl" to "", "Alt" to "",
     "←" to "\u001b[D", "↓" to "\u001b[B", "↑" to "\u001b[A", "→" to "\u001b[C",
     "Home" to "\u001b[H", "End" to "\u001b[F", "PgUp" to "\u001b[5~", "PgDn" to "\u001b[6~",
     "-" to "-", "|" to "|", "/" to "/", "~" to "~",
@@ -136,6 +136,13 @@ class TerminalView(ctx: Context, val session: PtySession) {
     }
 
     fun fit() { if (pageReady) webView.post { webView.evaluateJavascript("termFit()", null) } }
+    /** Types the clipboard text into the terminal. Goes through xterm so a shell's bracketed paste is honoured. */
+    fun pasteClipboard(ctx: Context) {
+        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val text = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(ctx)?.toString().orEmpty()
+        if (text.isEmpty() || !pageReady) return
+        webView.post { webView.evaluateJavascript("termPaste(" + org.json.JSONObject.quote(text) + "); termFocus();", null) }
+    }
     fun detachFromParent() { (webView.parent as? ViewGroup)?.removeView(webView) }
     fun destroy() { session.detach(); detachFromParent(); webView.destroy() }
 }
@@ -214,6 +221,7 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                                     when (label) {
                                         "Ctrl" -> ctrl = !ctrl
                                         "Alt" -> alt = !alt
+                                        "Paste" -> tv.pasteClipboard(ctx)
                                         else -> { s.write(seq); ctrl = false; alt = false }
                                     }
                                 },

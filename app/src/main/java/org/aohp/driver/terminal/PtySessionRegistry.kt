@@ -101,13 +101,14 @@ class PtySession(val env: String, private val pfd: ParcelFileDescriptor) {
     /**
      * v1 resize hack: the PFD is a socket relay, so TIOCSWINSZ is impossible from
      * here; tell the shell instead. Echoes in the terminal until containerd gets
-     * resizeShell. Only sent when the size actually changes.
+     * resizeShell. Only sent when the size actually changes. The terminal page calls this
+     * only at an empty shell prompt and does the debouncing (assets/term/index.html): typed
+     * into a half-written command line, the stty text would be appended to it and run.
      */
     private val resizeHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var pendingResize: Runnable? = null
     fun resize(c: Int, r: Int) {
         if (c <= 0 || r <= 0) return
-        // Debounce: the keyboard animation produces a burst of sizes; only the final one matters.
         pendingResize?.let { resizeHandler.removeCallbacks(it) }
         val run = Runnable {
             pendingResize = null
@@ -116,7 +117,7 @@ class PtySession(val env: String, private val pfd: ParcelFileDescriptor) {
             write("stty cols $c rows $r\n")
         }
         pendingResize = run
-        resizeHandler.postDelayed(run, 400)
+        resizeHandler.post(run)
     }
 
     fun close() {
