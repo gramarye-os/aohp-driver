@@ -208,6 +208,15 @@ public final class JsonCommandHandler {
                 return appForeground(p);
             case "app.running":
                 return completedJson(this::appRunning);
+            // Web apps an env puts on the home screen (org.aohp.driver.webapp).
+            case "webapp.pin":
+                return completedJson(() -> org.aohp.driver.webapp.WebApps.pin(mContext, mContainer, p));
+            case "webapp.list":
+                return completedJson(() -> org.aohp.driver.webapp.WebApps.list(mContext));
+            case "webapp.remove":
+                return completedJson(() -> org.aohp.driver.webapp.WebApps.remove(mContext, p));
+            case "webapp.open":
+                return completedJson(() -> org.aohp.driver.webapp.WebApps.open(mContext, p));
             case "sys.clipboard":
                 return sysClipboard(p);
             case "sys.notifications":

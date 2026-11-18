@@ -57,6 +57,16 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|uiMode"
             android:theme="@android:style/Theme.DeviceDefault.Dialog.Alert" />
 
+        <!-- A web app an env put on the home screen (bridge webapp.pin): one window and one recents
+             entry per app. Not exported: opened by the Driver's own shortcuts and by webapp.open. -->
+        <activity
+            android:name=".webapp.WebAppActivity"
+            android:exported="false"
+            android:documentLaunchMode="intoExisting"
+            android:configChanges="orientation|screenSize|keyboardHidden|keyboard|screenLayout|smallestScreenSize|uiMode|density"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
         <receiver
             android:name=".bridge.NotifyReplyReceiver"
             android:exported="false" />
