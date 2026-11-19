@@ -16,16 +16,18 @@ data class WebApp(
     val dir: String = "", val entry: String = "index.html",
     val url: String = "", val unit: String = "",
     val color: String = "", val immersive: Boolean = false, val createdMs: Long = 0L,
+    /** The id of the env this app was pinned from (see [EnvId]); empty in records from before env ids. */
+    val envId: String = "",
 ) {
     fun toJson(): JSONObject = JSONObject().put("id", id).put("name", name).put("env", env).put("mode", mode)
         .put("dir", dir).put("entry", entry).put("url", url).put("unit", unit)
-        .put("color", color).put("immersive", immersive).put("createdMs", createdMs)
+        .put("color", color).put("immersive", immersive).put("createdMs", createdMs).put("envId", envId)
 
     companion object {
         fun from(o: JSONObject) = WebApp(
             o.optString("id"), o.optString("name"), o.optString("env"), o.optString("mode"),
             o.optString("dir"), o.optString("entry", "index.html"), o.optString("url"), o.optString("unit"),
-            o.optString("color"), o.optBoolean("immersive", false), o.optLong("createdMs", 0L))
+            o.optString("color"), o.optBoolean("immersive", false), o.optLong("createdMs", 0L), o.optString("envId"))
     }
 }
 

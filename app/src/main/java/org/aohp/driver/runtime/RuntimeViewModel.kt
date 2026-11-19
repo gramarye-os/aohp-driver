@@ -145,6 +145,8 @@ class RuntimeViewModel(app: Application) : AndroidViewModel(app) {
     /** A reset or destroyed env loses its key permissions: a new env under the same name must be allowed again. */
     private fun forgetKeys(name: String, why: String) {
         runCatching { org.aohp.driver.bridge.CredentialAcl.forgetEnv(getApplication(), name, why) }
+        // Its web apps go with it: their files were in the env.
+        runCatching { org.aohp.driver.webapp.WebApps.forgetEnv(getApplication(), name, why) }
     }
 
     fun reset(name: String) = action("Resetting $name…") {

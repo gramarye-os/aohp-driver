@@ -72,14 +72,14 @@ object WebApps {
         val immersive = p.optBoolean("immersive", false)
         val now = System.currentTimeMillis()
 
-        val app: WebApp
+        val app0: WebApp
         if (dir.isNotEmpty()) {
             val root = dir.trimEnd('/')
             val entry = p.optString("entry").trim().trimStart('/').ifEmpty { "index.html" }
             if (!root.startsWith("/") || EnvFiles.unsafe(root) || EnvFiles.unsafe(entry))
                 return err("dir", "dir: an absolute path to the app's folder in the env")
             EnvFiles.open(c, env, root, entry) ?: return err("dir", "no file " + entry + " in " + root + " of env " + env)
-            app = WebApp(id, name, env, "dir", dir = root, entry = entry, color = color, immersive = immersive, createdMs = now)
+            app0 = WebApp(id, name, env, "dir", dir = root, entry = entry, color = color, immersive = immersive, createdMs = now)
         } else {
             val u = Uri.parse(url)
             val h = u.host ?: ""
@@ -87,7 +87,7 @@ object WebApps {
                 return err("url", "url: http://127.0.0.1:<port>/ of a server in the env (bind the server to 127.0.0.1)")
             val unit = p.optString("unit").trim()
             if (unit.isNotEmpty() && !UNIT.matches(unit)) return err("unit", "unit: a unit name such as mygame.service")
-            app = WebApp(id, name, env, "url", url = url, unit = unit, color = color, immersive = immersive, createdMs = now)
+            app0 = WebApp(id, name, env, "url", url = url, unit = unit, color = color, immersive = immersive, createdMs = now)
         }
 
         val iconPath = p.optString("icon").trim()
@@ -105,7 +105,10 @@ object WebApps {
             file.delete()
         }
 
+        // Remember which env this is, not only its name. If the id cannot be had now, the record takes it at first open.
+        val app = app0.copy(envId = EnvId.ensure(c, env) ?: "")
         WebAppRegistry.get(ctx).put(app)
+        WebAppActivity.closeIfDropped(id)
         Log.i(TAG, "pin id=" + id + " mode=" + app.mode + " env=" + env + (if (app.mode == "dir") " dir=" + app.dir else " url=" + app.url))
 
         val wantPin = p.optBoolean("pin", true)
@@ -148,17 +151,38 @@ object WebApps {
         val id = p.optString("id").trim()
         val reg = WebAppRegistry.get(ctx)
         val app = reg.get(id) ?: return err("id", "no web app with id '" + id + "'")
-        reg.remove(id)
-        iconFile(ctx, id).delete()
-        WebAppActivity.close(id)
-        // A pinned shortcut cannot be taken off the home screen by its app; it is disabled and says why.
-        runCatching { ctx.getSystemService(ShortcutManager::class.java)?.disableShortcuts(listOf(shortcutId(id)), "This app was removed") }
-        if (app.mode == "dir") Handler(Looper.getMainLooper()).post {
-            runCatching { WebStorage.getInstance().deleteOrigin("https://" + host(id)) }
-        }
+        drop(ctx, app, "This app was removed", closeWindow = true)
         Log.i(TAG, "remove id=" + id)
         return JSONObject().put("ok", true).put("id", id)
             .put("message", "Removed \"" + app.name + "\". Its home-screen icon stays until the user drags it away.")
+    }
+
+    /** Take an app off the phone: its record, icon file and stored page data. The home-screen icon is disabled. */
+    private fun drop(ctx: Context, app: WebApp, why: String, closeWindow: Boolean) {
+        WebAppRegistry.get(ctx).remove(app.id)
+        iconFile(ctx, app.id).delete()
+        if (closeWindow) WebAppActivity.close(app.id)
+        // A pinned shortcut cannot be taken off the home screen by its app; it is disabled and says why.
+        runCatching { ctx.getSystemService(ShortcutManager::class.java)?.disableShortcuts(listOf(shortcutId(app.id)), why) }
+        if (app.mode == "dir") Handler(Looper.getMainLooper()).post {
+            runCatching { WebStorage.getInstance().deleteOrigin("https://" + host(app.id)) }
+        }
+    }
+
+    const val ENV_GONE = "The env this app was made in no longer exists"
+
+    /** The app's env turned out to be gone or replaced when the app was opened (see [EnvId.verify]). */
+    fun dropStale(ctx: Context, app: WebApp) {
+        drop(ctx, app, ENV_GONE, closeWindow = false)
+        Log.i(TAG, "drop id=" + app.id + " env=" + app.env + " by=env-check")
+    }
+
+    /** An env was destroyed or reset: its files are gone, so the apps pinned from it go too. Returns their ids. */
+    @JvmStatic
+    fun forgetEnv(ctx: Context, env: String, why: String): List<String> {
+        val gone = WebAppRegistry.get(ctx).all().filter { it.env == env }
+        gone.forEach { drop(ctx, it, ENV_GONE, closeWindow = true); Log.i(TAG, "drop id=" + it.id + " env=" + env + " by=" + why) }
+        return gone.map { it.id }
     }
 
     @JvmStatic

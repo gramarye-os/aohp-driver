@@ -49,6 +49,10 @@ class WebAppActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var gone = false
     private var appId = ""
+    private var container: AohpContainerClient? = null
+    /** The first env check (in onCreate) has answered; later returns to the front check again. */
+    private var checkedOnce = false
+    @Volatile private var dropped = false
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -108,7 +112,30 @@ class WebAppActivity : Activity() {
         }
 
         val container = AohpContainerClient(applicationContext)
-        if (app.mode == "dir") showDir(app, wv, container) else showUrl(app, wv, container)
+        this.container = container
+        // Is the env still the one this app was pinned from? One command in the env; the page waits for the answer.
+        Thread {
+            val v = try { EnvId.verify(applicationContext, container, app) } catch (t: Throwable) { EnvId.Verdict.UNKNOWN }
+            main.post {
+                if (gone) return@post
+                checkedOnce = true
+                if (v == EnvId.Verdict.GONE) envGone(app)
+                else if (app.mode == "dir") showDir(app, wv, container) else showUrl(app, wv, container)
+            }
+        }.start()
+    }
+
+    /** The env this app was pinned from was destroyed, reset or replaced: say so and take the app off the phone. */
+    private fun envGone(app: WebApp) {
+        dropped = true
+        web?.loadUrl("about:blank")
+        WebApps.dropStale(applicationContext, app)
+        status.text = app.name + " cannot be opened.\n\nIt was made in the env \"" + app.env + "\", which has been destroyed or reset since, " +
+            "so its files are gone. The app has been removed from this phone. Its home-screen icon can be dragged away."
+        retry.text = "Close"
+        retry.setOnClickListener { finishAndRemoveTask() }
+        retry.visibility = View.VISIBLE
+        box.visibility = View.VISIBLE
     }
 
     // ---- "dir": files from the env, no network ----
@@ -196,6 +223,22 @@ class WebAppActivity : Activity() {
         box.visibility = View.VISIBLE
     }
 
+    /** A window left open comes back to the front: its env may have been replaced in the meantime. */
+    override fun onStart() {
+        super.onStart()
+        val c = container ?: return
+        if (!checkedOnce || dropped) return
+        Thread {
+            // The record as it is now: one from before env ids has taken its id at the first check.
+            val cur = WebAppRegistry.get(applicationContext).get(appId)
+            val v = if (cur == null) EnvId.Verdict.UNKNOWN else try { EnvId.verify(applicationContext, c, cur) } catch (t: Throwable) { EnvId.Verdict.UNKNOWN }
+            main.post {
+                if (gone || dropped) return@post
+                if (cur == null) finishAndRemoveTask() else if (v == EnvId.Verdict.GONE) envGone(cur)
+            }
+        }.start()
+    }
+
     override fun onResume() { super.onResume(); web?.onResume() }
     override fun onPause() { web?.onPause(); super.onPause() }
 
@@ -209,6 +252,12 @@ class WebAppActivity : Activity() {
 
     companion object {
         private val live = java.util.concurrent.ConcurrentHashMap<String, WebAppActivity>()
+
+        /** A window still showing "its env is gone" for [id] is closed, so that a new pin of that id opens fresh. */
+        fun closeIfDropped(id: String) {
+            val a = live[id] ?: return
+            if (a.dropped) a.runOnUiThread { a.finishAndRemoveTask() }
+        }
 
         /** Close the window of an app that was removed, and take it out of recents. */
         fun close(id: String) {
