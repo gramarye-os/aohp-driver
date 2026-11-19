@@ -68,9 +68,13 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
         Column(Modifier.padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("OpenClaw gateway", style = MaterialTheme.typography.titleMedium)
-                TextButton(onClick = { vm.refresh() }, enabled = st.busy == null) { Text(st.busy ?: "Refresh") }
+                TextButton(onClick = { vm.refresh() }, enabled = st.busy == null && !st.loading) {
+                    Text(st.busy ?: if (st.loading) "Loading…" else "Refresh")
+                }
             }
-            if (st.gateways.isEmpty()) Text("No environments.", style = MaterialTheme.typography.bodySmall)
+            // The first status read takes seconds (it starts the openclaw CLI in the env): until it is back the
+            // list is empty because nothing is known yet, not because there are no environments.
+            if (st.gateways.isEmpty()) Text(if (st.loaded) "No environments." else "Loading…", style = MaterialTheme.typography.bodySmall)
             st.gateways.forEach { g ->
                 if (st.gateways.size > 1) { Spacer(Modifier.height(6.dp)); Text("env:" + g.env, style = MaterialTheme.typography.labelLarge) }
                 if (!g.reachable) { KeyValue("status", g.error ?: "unreachable"); return@forEach }

@@ -59,6 +59,8 @@ data class GatewayInfo(
 )
 
 data class GatewayState(val gateways: List<GatewayInfo> = emptyList(), val busy: String? = null, val message: String? = null,
+                        /** loaded: a status read has come back at least once. loading: one is running (it takes seconds). */
+                        val loaded: Boolean = false, val loading: Boolean = false,
                         val deviceOps: Map<String, DeviceOp> = emptyMap())   // device/request id -> state
 
 /**
@@ -113,11 +115,16 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() = viewModelScope.launch {
-        val gws = withContext(Dispatchers.IO) {
-            val envs = containers.listContainers()?.toList()?.sorted() ?: emptyList()
-            envs.map { read(it) }
+        _state.update { it.copy(loading = true) }
+        val gws = try {
+            withContext(Dispatchers.IO) {
+                val envs = containers.listContainers()?.toList()?.sorted() ?: emptyList()
+                envs.map { read(it) }
+            }
+        } finally {
+            _state.update { it.copy(loading = false) }
         }
-        _state.update { it.copy(gateways = gws) }
+        _state.update { it.copy(gateways = gws, loaded = true) }
     }
 
     private fun action(label: String, block: suspend () -> String) = viewModelScope.launch {
