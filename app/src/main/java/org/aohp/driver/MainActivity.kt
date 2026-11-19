@@ -60,6 +60,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * An Esc key on a keyboard never leaves the Driver. Android's key map turns an Esc that nothing
+     * consumes into Back, and Back at the top level closes the app. So Esc is always reported as
+     * handled here: on the Terminal tab it goes to the shell as the byte 0x1b and the WebView never
+     * sees it; elsewhere the content gets it first (a web page sees its keydown). A WebView has a
+     * second way to turn Esc into Back, closed in web/EscSafeWebViewClient. Dialogs are windows of
+     * their own and still close on Esc; the Back key and gesture are not touched.
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (event.keyCode == android.view.KeyEvent.KEYCODE_ESCAPE) {
+            val esc = org.aohp.driver.terminal.TerminalKeys.esc
+            if (esc != null) {
+                if (event.action == android.view.KeyEvent.ACTION_DOWN) esc()
+            } else {
+                super.dispatchKeyEvent(event)
+            }
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (isFinishing) {

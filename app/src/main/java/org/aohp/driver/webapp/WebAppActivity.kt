@@ -143,7 +143,7 @@ class WebAppActivity : Activity() {
     private fun showDir(app: WebApp, wv: WebView, c: AohpContainerClient) {
         val host = WebApps.host(app.id)
         wv.settings.blockNetworkLoads = true
-        wv.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : org.aohp.driver.web.EscSafeWebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse {
                 val u = request.url
                 if (u.scheme != "https" || u.host != host) return plain(403, "Forbidden", "This app has no network access.")
@@ -176,7 +176,7 @@ class WebAppActivity : Activity() {
 
     private fun showUrl(app: WebApp, wv: WebView, c: AohpContainerClient) {
         val target = Uri.parse(app.url)
-        wv.webViewClient = object : WebViewClient() {
+        wv.webViewClient = object : org.aohp.driver.web.EscSafeWebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
                 if ((u.host == "127.0.0.1" || u.host == "localhost") && u.port == target.port) return false

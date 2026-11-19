@@ -114,7 +114,7 @@ fun WebScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit) {
     }
     // (Re)bind clients each composition of the screen so callbacks update this screen's state.
     DisposableEffect(webView) {
-        webView.webViewClient = object : WebViewClient() {
+        webView.webViewClient = object : EscSafeWebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url
                 val host = u.host ?: return false

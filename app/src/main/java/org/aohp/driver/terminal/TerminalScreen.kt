@@ -100,6 +100,15 @@ class TermBridge(private val session: PtySession) {
     @JavascriptInterface fun onReady() { ready = true }
 }
 
+/**
+ * Where an Esc key press goes while the Terminal tab is on screen (set by TerminalScreen, read by
+ * MainActivity.dispatchKeyEvent, which explains why the activity takes the key): a terminal needs
+ * Esc as the byte 0x1b (vi, nano's Meta).
+ */
+object TerminalKeys {
+    @Volatile var esc: (() -> Unit)? = null
+}
+
 /** A live xterm.js WebView bound to one PtySession. Survives tab switches. */
 @SuppressLint("SetJavaScriptEnabled")
 class TerminalView(ctx: Context, val session: PtySession) {
@@ -116,7 +125,7 @@ class TerminalView(ctx: Context, val session: PtySession) {
             settings.domStorageEnabled = false
             settings.allowFileAccess = false
             setBackgroundColor(0xFF0B0F14.toInt())
-            webViewClient = object : WebViewClient() {
+            webViewClient = object : org.aohp.driver.web.EscSafeWebViewClient() {
                 override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) = loader.shouldInterceptRequest(request.url)
                 override fun onPageFinished(view: WebView, url: String?) {
                     pageReady = true
@@ -206,7 +215,13 @@ fun TerminalScreen(modifier: Modifier = Modifier) {
                     DisposableEffect(tv) {
                         tv.onStatus = { st -> status = st }
                         tv.bridge.onModsConsumed = { ctrl = false; alt = false }
-                        onDispose { tv.onStatus = null; tv.bridge.onModsConsumed = null; tv.detachFromParent() }
+                        // Same as the Esc pill below, for an Esc key on a keyboard.
+                        val onEsc: () -> Unit = { s.write("\u001b"); ctrl = false; alt = false }
+                        TerminalKeys.esc = onEsc
+                        onDispose {
+                            if (TerminalKeys.esc === onEsc) TerminalKeys.esc = null
+                            tv.onStatus = null; tv.bridge.onModsConsumed = null; tv.detachFromParent()
+                        }
                     }
                     tv.bridge.ctrl = ctrl; tv.bridge.alt = alt
                     AndroidView(
