@@ -3,6 +3,7 @@
 
 package org.aohp.driver.harness
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +56,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import org.aohp.driver.Tab
 import org.aohp.driver.ui.CenteredMessage
 import org.aohp.driver.ui.KeyValue
@@ -65,6 +68,15 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
     val st by vm.state.collectAsStateWithLifecycle()
     val snack = remember { SnackbarHostState() }
     var showBootstrap by remember { mutableStateOf(false) }
+    // A scanned setup code is shown for confirmation first: it can open ssh access and replace the config.
+    var pendingSetup by remember { mutableStateOf<Pair<String, SetupSummary>?>(null) }
+    val setupScanner = rememberLauncherForActivityResult(ScanContract()) { res ->
+        val text = res.contents?.trim().orEmpty()
+        if (text.isNotEmpty()) {
+            val summary = describeSetupCode(text)
+            if (summary == null) vm.say("That QR code is not a setup code.") else pendingSetup = text to summary
+        }
+    }
     LaunchedEffect(st.message) { st.message?.let { snack.showSnackbar(it); vm.consumeMessage() } }
     // Refresh only while this tab is on screen.
     LifecycleResumeEffect(Unit) {
@@ -91,7 +103,10 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
             if (st.busy != null) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (st.servicesError == null && st.services.none { it.serviceId == GATEWAY_SERVICE_ID })
                 SetupCard("OpenClaw is not set up in ‘" + st.env + "’", "No openclaw-gateway service has been started here yet. The wizard adds a provider key (or imports a config repo), starts the gateway and can enable autostart on boot.", onSetup)
-            GatewayCard(st, vm, onGoToTab, onBootstrap = { showBootstrap = true })
+            GatewayCard(st, vm, onGoToTab, onBootstrap = { showBootstrap = true }, onScanSetup = {
+                setupScanner.launch(ScanOptions().setDesiredBarcodeFormats(ScanOptions.QR_CODE).setBeepEnabled(false).setOrientationLocked(false)
+                    .setPrompt("Scan a setup code"))
+            })
             if (st.units != null) UnitsCard(st, vm) else ServicesCard(st, vm)
             LogCard(st, vm)
             SecretsCard(st, vm)
@@ -99,6 +114,9 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
         }
     }
     if (showBootstrap) BootstrapDialog(st.bootstrapRepo, onDismiss = { showBootstrap = false }) { repo, passphrase -> showBootstrap = false; vm.bootstrap(repo, passphrase) }
+    pendingSetup?.let { (code, summary) ->
+        SetupCodeDialog(st.env.orEmpty(), summary, onCancel = { pendingSetup = null }) { pendingSetup = null; vm.applySetupCode(code) }
+    }
     st.bootstrap?.let { b ->
         if (b.wrongPassphrase && !b.running) PassphraseAgainDialog(b.repo, onRetry = { vm.retryBootstrap(it) }, onCancel = { vm.cancelPassphrase() })
         else BootstrapProgressDialog(b, onDismiss = { if (!b.running) vm.dismissBootstrap() })
@@ -118,7 +136,7 @@ private fun SetupCard(title: String, body: String, onSetup: () -> Unit) {
 }
 
 @Composable
-private fun GatewayCard(st: HarnessState, vm: HarnessViewModel, onGoToTab: (Tab) -> Unit, onBootstrap: () -> Unit) {
+private fun GatewayCard(st: HarnessState, vm: HarnessViewModel, onGoToTab: (Tab) -> Unit, onBootstrap: () -> Unit, onScanSetup: () -> Unit) {
     val gw = st.services.firstOrNull { it.serviceId == GATEWAY_SERVICE_ID }
     val httpUp = st.probe?.up == true
     val alive = gw?.alive == true
@@ -150,6 +168,7 @@ private fun GatewayCard(st: HarnessState, vm: HarnessViewModel, onGoToTab: (Tab)
                 OutlinedButton(onClick = { vm.stop() }, enabled = idle && gw?.alive == true) { Text("Stop") }
                 OutlinedButton(onClick = { vm.restart() }, enabled = idle) { Text("Restart") }
                 FilledTonalButton(onClick = onBootstrap, enabled = idle && st.bootstrap?.running != true) { Text("Bootstrap…") }
+                FilledTonalButton(onClick = onScanSetup, enabled = idle && st.bootstrap?.running != true) { Text("Scan setup code") }
                 if (httpUp) FilledTonalButton(onClick = { onGoToTab(Tab.Web) }) { Text("Open UI") }
             }
         }
@@ -324,6 +343,22 @@ private fun PassphraseAgainDialog(repo: String, onRetry: (String) -> Unit, onCan
         dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } })
 }
 
+/** What a scanned setup code is about to do, before anything is changed. */
+@Composable
+private fun SetupCodeDialog(env: String, summary: SetupSummary, onCancel: () -> Unit, onApply: () -> Unit) {
+    AlertDialog(onDismissRequest = onCancel,
+        title = { Text(if (summary.name.isEmpty()) "Apply this setup code?" else "Apply setup code ‘" + summary.name + "’?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("In env ‘" + env + "’ this will set up:")
+                summary.lines.forEach { Text("• " + it) }
+                Text("Only apply a code you made yourself: it decides who can log in to this env.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { Button(onClick = onApply) { Text("Apply") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } })
+}
+
 @Composable
 private fun BootstrapProgressDialog(b: BootstrapRun, onDismiss: () -> Unit) {
     val scroll = rememberScrollState()
@@ -331,7 +366,9 @@ private fun BootstrapProgressDialog(b: BootstrapRun, onDismiss: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss,
         title = { Row(verticalAlignment = Alignment.CenterVertically) {
             if (b.running) { CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
-            Text(if (b.running) "Bootstrapping…" else if (b.exitCode == 0) "Bootstrap done"
+            Text(if (b.setupCode) (if (b.running) "Setting up…" else if (b.exitCode == 0) "Setup done"
+                    else if (b.exitCode == WRONG_PASSPHRASE_EXIT) "Setup stopped: the code's age passphrase is wrong" else "Setup failed (exit " + b.exitCode + ")")
+                else if (b.running) "Bootstrapping…" else if (b.exitCode == 0) "Bootstrap done"
                 else if (b.exitCode == WRONG_PASSPHRASE_EXIT) "Bootstrap stopped at the passphrase" else "Bootstrap failed (exit " + b.exitCode + ")") } },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 420.dp).background(Color(0xFF0B0F14), RoundedCornerShape(6.dp)).padding(8.dp).verticalScroll(scroll)) {

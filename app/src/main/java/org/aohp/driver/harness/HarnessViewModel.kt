@@ -39,6 +39,8 @@ data class BootstrapRun(
     val exitCode: Int? = null,
     /** The run stopped because the age passphrase was wrong: the screen asks for it again. */
     val wrongPassphrase: Boolean = false,
+    /** The run applies a scanned setup code (aohp-setup) instead of a typed bootstrap. */
+    val setupCode: Boolean = false,
 )
 
 data class HarnessState(
@@ -66,6 +68,9 @@ private const val PP_SECRET = "AOHP_SETUP_AGE_PASSPHRASE"
 private const val PP_FILE = "/tmp/.aohp-pp"
 /** aohp-secrets' exit code for a wrong age passphrase (aohp-agents bin/aohp-secrets), passed on by aohp-bootstrap. */
 const val WRONG_PASSPHRASE_EXIT = 5
+/** Where a scanned setup code waits: a temporary Keystore name, and the file the env reads it into. */
+private const val SETUP_SECRET = "AOHP_SETUP_PROFILE"
+private const val SETUP_FILE = "/tmp/.aohp-setup-profile"
 
 class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     private val svc = (app as DriverApp).containers
@@ -252,6 +257,44 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * A scanned setup code (aohp-agents bin/aohp-setup): WireGuard tunnel, ssh and bootstrap from one profile.
+     * The code holds secrets, so it takes the same road as a bootstrap passphrase: the Keystore, then a 0600
+     * file in the env, both removed when the run ends. Progress is shown like a bootstrap's.
+     */
+    fun applySetupCode(code: String) {
+        val env = _state.value.env ?: return
+        if (_state.value.bootstrap?.running == true) return
+        val payload = code.trim()
+        if (!payload.startsWith(SETUP_CODE_PREFIX)) { _state.update { it.copy(message = "That is not a setup code.") }; return }
+        val store = org.aohp.driver.bridge.SecretStore(getApplication())
+        if (!store.set(SETUP_SECRET, payload)) { _state.update { it.copy(message = "Could not store the setup code.") }; return }
+        val logFile = "/tmp/aohp-setup.log"
+        val head = "$ aohp-setup apply <setup code>\n"
+        _state.update { it.copy(bootstrap = BootstrapRun("setup code", true, System.currentTimeMillis(), head, setupCode = true)) }
+        val main = viewModelScope.launch {
+            // An env made from an older template has no aohp-setup yet: aohp-update brings it.
+            val cmd = "rm -f $logFile; ( command -v aohp-setup >/dev/null 2>&1 || aohp-update; umask 077; rm -f $SETUP_FILE; " +
+                "aohp secret get $SETUP_SECRET > $SETUP_FILE || exit 4; aohp-setup apply $SETUP_FILE ) >$logFile 2>&1; ec=\$?; " +
+                "rm -f $SETUP_FILE; echo \"__EXIT__=\$ec\" >> $logFile; exit \$ec"
+            val r = svc.execSync(env, cmd, 30 * 60 * 1000)
+            store.delete(SETUP_SECRET)
+            val ec = r.getOrNull()?.exitCode ?: -1
+            val tail = r.getOrNull()?.let { if (!it.ok && it.stderr.isNotEmpty()) "\n" + it.stderr else "" } ?: ("\n" + r.exceptionOrNull()?.message)
+            val finalLog = svc.execSync(env, "cat $logFile 2>/dev/null", 10_000).getOrNull()?.stdout ?: ""
+            _state.update { st -> st.copy(bootstrap = st.bootstrap?.copy(running = false, exitCode = ec, output = head + finalLog + tail)) }
+            refresh(); loadSecrets()
+        }
+        viewModelScope.launch {
+            delay(1500)
+            while (main.isActive) {
+                val out = svc.execSync(env, "cat $logFile 2>/dev/null", 10_000).getOrNull()?.stdout
+                if (out != null && main.isActive) _state.update { st -> st.copy(bootstrap = st.bootstrap?.copy(output = head + out)) }
+                delay(2000)
+            }
+        }
+    }
+
     /** The passphrase was wrong and the user typed another: run the bootstrap again with it. */
     fun retryBootstrap(passphrase: String) {
         val b = _state.value.bootstrap ?: return
@@ -279,4 +322,7 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun consumeMessage() = _state.update { it.copy(message = null) }
+
+    /** Show a short notice on the screen (snackbar). */
+    fun say(text: String) = _state.update { it.copy(message = text) }
 }
