@@ -37,6 +37,8 @@ data class BootstrapRun(
     val startedAt: Long,
     val output: String = "",
     val exitCode: Int? = null,
+    /** The run stopped because the age passphrase was wrong: the screen asks for it again. */
+    val wrongPassphrase: Boolean = false,
 )
 
 data class HarnessState(
@@ -62,6 +64,8 @@ data class HarnessState(
 /** Where a bootstrap's age passphrase waits: a temporary Keystore name, and the file the env reads it into. */
 private const val PP_SECRET = "AOHP_SETUP_AGE_PASSPHRASE"
 private const val PP_FILE = "/tmp/.aohp-pp"
+/** aohp-secrets' exit code for a wrong age passphrase (aohp-agents bin/aohp-secrets), passed on by aohp-bootstrap. */
+const val WRONG_PASSPHRASE_EXIT = 5
 
 class HarnessViewModel(app: Application) : AndroidViewModel(app) {
     private val svc = (app as DriverApp).containers
@@ -234,7 +238,8 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
             val tail = r.getOrNull()?.let { if (!it.ok && it.stderr.isNotEmpty()) "\n" + it.stderr else "" } ?: ("\n" + r.exceptionOrNull()?.message)
             // final read of the log
             val finalLog = svc.execSync(env, "cat $logFile 2>/dev/null", 10_000).getOrNull()?.stdout ?: ""
-            _state.update { st -> st.copy(bootstrap = st.bootstrap?.copy(running = false, exitCode = ec, output = "$ aohp-bootstrap $repo\n" + finalLog + tail)) }
+            _state.update { st -> st.copy(bootstrap = st.bootstrap?.copy(running = false, exitCode = ec, output = "$ aohp-bootstrap $repo\n" + finalLog + tail,
+                wrongPassphrase = havePp && ec == WRONG_PASSPHRASE_EXIT)) }
             refresh(); loadSecrets()
         }
         viewModelScope.launch {
@@ -245,6 +250,20 @@ class HarnessViewModel(app: Application) : AndroidViewModel(app) {
                 delay(2000)
             }
         }
+    }
+
+    /** The passphrase was wrong and the user typed another: run the bootstrap again with it. */
+    fun retryBootstrap(passphrase: String) {
+        val b = _state.value.bootstrap ?: return
+        if (b.running || passphrase.isEmpty()) return
+        bootstrap(b.repo, passphrase)
+    }
+
+    /** The passphrase was wrong and the user gave up: show the log, and say where that leaves the env. */
+    fun cancelPassphrase() = _state.update { st ->
+        st.copy(bootstrap = st.bootstrap?.copy(wrongPassphrase = false, output = (st.bootstrap.output.trimEnd() +
+            "\n\nStopped at the passphrase. The config repo is checked out in this env, but its secrets are not in place " +
+            "and the gateway was not restarted. Run Bootstrap… again to finish.\n")))
     }
 
     fun dismissBootstrap() = _state.update { it.copy(bootstrap = null) }

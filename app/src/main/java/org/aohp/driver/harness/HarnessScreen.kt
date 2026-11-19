@@ -99,7 +99,10 @@ fun HarnessScreen(modifier: Modifier = Modifier, onGoToTab: (Tab) -> Unit, onSet
         }
     }
     if (showBootstrap) BootstrapDialog(st.bootstrapRepo, onDismiss = { showBootstrap = false }) { repo, passphrase -> showBootstrap = false; vm.bootstrap(repo, passphrase) }
-    st.bootstrap?.let { b -> BootstrapProgressDialog(b, onDismiss = { if (!b.running) vm.dismissBootstrap() }) }
+    st.bootstrap?.let { b ->
+        if (b.wrongPassphrase && !b.running) PassphraseAgainDialog(b.repo, onRetry = { vm.retryBootstrap(it) }, onCancel = { vm.cancelPassphrase() })
+        else BootstrapProgressDialog(b, onDismiss = { if (!b.running) vm.dismissBootstrap() })
+    }
 }
 
 @Composable
@@ -305,6 +308,22 @@ private fun BootstrapDialog(initialRepo: String, onDismiss: () -> Unit, onRun: (
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
+/** The bootstrap stopped at a wrong age passphrase: ask again until it is right or the user cancels. */
+@Composable
+private fun PassphraseAgainDialog(repo: String, onRetry: (String) -> Unit, onCancel: () -> Unit) {
+    var passphrase by remember { mutableStateOf("") }
+    AlertDialog(onDismissRequest = {}, title = { Text("Wrong passphrase") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("The age passphrase for the secrets in $repo was not accepted. Type it again; the bootstrap is then run again.")
+                OutlinedTextField(passphrase, { passphrase = it }, label = { Text("age passphrase") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+            }
+        },
+        confirmButton = { Button(enabled = passphrase.isNotEmpty(), onClick = { onRetry(passphrase) }) { Text("Try again") } },
+        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } })
+}
+
 @Composable
 private fun BootstrapProgressDialog(b: BootstrapRun, onDismiss: () -> Unit) {
     val scroll = rememberScrollState()
@@ -312,7 +331,8 @@ private fun BootstrapProgressDialog(b: BootstrapRun, onDismiss: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss,
         title = { Row(verticalAlignment = Alignment.CenterVertically) {
             if (b.running) { CircularProgressIndicator(Modifier.width(18.dp).height(18.dp), strokeWidth = 2.dp); Spacer(Modifier.width(8.dp)) }
-            Text(if (b.running) "Bootstrapping…" else if (b.exitCode == 0) "Bootstrap done" else "Bootstrap failed (exit " + b.exitCode + ")") } },
+            Text(if (b.running) "Bootstrapping…" else if (b.exitCode == 0) "Bootstrap done"
+                else if (b.exitCode == WRONG_PASSPHRASE_EXIT) "Bootstrap stopped at the passphrase" else "Bootstrap failed (exit " + b.exitCode + ")") } },
         text = {
             Column(Modifier.fillMaxWidth().heightIn(min = 160.dp, max = 420.dp).background(Color(0xFF0B0F14), RoundedCornerShape(6.dp)).padding(8.dp).verticalScroll(scroll)) {
                 Text(stripAnsi(b.output).lines().filterNot { it.startsWith("__EXIT__=") }.joinToString("\n"), fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp, color = Color(0xFFD8DEE9))

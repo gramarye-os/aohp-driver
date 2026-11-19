@@ -253,6 +253,8 @@ exec /usr/local/bin/openclaw.real "${'$'}@"
             store.delete(PP_SECRET); store.delete(GH_SECRET)
             _state.update { it.copy(log = base + out + (r.exceptionOrNull()?.let { e -> "\n" + e.message } ?: ""), busy = null) }
             if (ec == 0) _state.update { it.copy(credDone = true, credSummary = "bootstrapped from ${s.gitRepo}", step = SetupStep.Start) }
+            // 5 = aohp-secrets' code for a wrong age passphrase. The field is still on this step: type it again.
+            else if (ec == 5 && havePp) _state.update { it.copy(error = "Wrong age passphrase. Type it again and run the import again.") }
             else _state.update { it.copy(error = "aohp-bootstrap exited ${ec} — see log") }
         }
         viewModelScope.launch {
