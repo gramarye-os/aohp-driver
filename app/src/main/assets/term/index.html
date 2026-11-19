@@ -41,9 +41,11 @@
   window.termFocus = function() { term.focus(); };
   window.termPaste = function(txt) { term.paste(txt); };
 
-  // The shell learns its size by having "stty cols N rows M" typed into it (the daemon has no resize call yet).
-  // Typed into a half-written command line that text is appended to the command and run with it, so the size
-  // is only sent when the cursor sits at an empty shell prompt; otherwise it waits for the next output.
+  // The Driver sets the size on the shell's terminal from beside the shell (AohpTerm.sizeDirect() is then true)
+  // and a size can be sent at any time, also while a full-screen program runs. When it cannot find the terminal
+  // it types "stty cols N rows M" into the shell instead. Typed into a half-written command line that text is
+  // appended to the command and run with it, so in that case the size is only sent when the cursor sits at an
+  // empty shell prompt; otherwise it waits for the next output.
   var wantCols = 0, wantRows = 0, sentCols = 0, sentRows = 0, sizeTimer = null;
   function atEmptyPrompt() {
     var b = term.buffer.active; if (b.type !== 'normal') return false;
@@ -54,7 +56,9 @@
   }
   function sendSize() {
     sizeTimer = null;
-    if (!window.AohpTerm || (wantCols === sentCols && wantRows === sentRows) || !atEmptyPrompt()) return;
+    if (!window.AohpTerm || (wantCols === sentCols && wantRows === sentRows)) return;
+    var direct = false; try { direct = !!AohpTerm.sizeDirect(); } catch (e) {}
+    if (!direct && !atEmptyPrompt()) return;
     sentCols = wantCols; sentRows = wantRows; AohpTerm.onResize(wantCols, wantRows);
   }
   function queueSize() { if (sizeTimer) clearTimeout(sizeTimer); sizeTimer = setTimeout(sendSize, 400); }

@@ -95,6 +95,8 @@ class TermBridge(private val session: PtySession) {
     }
     @JavascriptInterface fun onBinary(data: String) { session.write(ByteArray(data.length) { data[it].code.toByte() }) }
     @JavascriptInterface fun onResize(cols: Int, rows: Int) { session.resize(cols, rows) }
+    /** True when the size is set beside the shell, so the page need not wait for an empty prompt. */
+    @JavascriptInterface fun sizeDirect(): Boolean = session.sizeDirect
     @JavascriptInterface fun onReady() { ready = true }
 }
 
