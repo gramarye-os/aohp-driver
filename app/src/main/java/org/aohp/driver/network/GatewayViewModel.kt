@@ -23,7 +23,9 @@ import org.aohp.driver.bridge.AohpContainerClient
 import org.json.JSONObject
 
 data class GatewayUrl(val iface: String, val url: String)
-data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?)
+data class PairCode(val url: String, val expiresAtMs: Long, val fingerprint: String?, val iface: String = "")
+/** A setup code for the OpenClaw app on this phone. [url] is ws(s)://127.0.0.1:port, which the code carries. */
+data class AppCode(val setupCode: String, val url: String, val expiresAtMs: Long, val fingerprint: String?)
 /** What the serving certificate is valid for (aohp-gateway cert): covers=false when the phone has an address the cert does not name. */
 data class CertInfo(val cn: String, val names: List<String>, val ips: List<String>, val notAfter: String, val covers: Boolean, val missing: List<String>)
 /** [id] is the deviceId (paired) or the pairing requestId (pending): approve/reject take the request id, remove takes the device id. */
@@ -56,6 +58,7 @@ data class GatewayInfo(
     val pending: List<GatewayDevice> = emptyList(),
     val paired: List<GatewayDevice> = emptyList(),
     val error: String? = null,
+    val port: Int = 18789,
 )
 
 data class GatewayState(val gateways: List<GatewayInfo> = emptyList(), val busy: String? = null, val message: String? = null,
@@ -108,7 +111,7 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
                 CertInfo(c.optString("cn"), arr("names"), arr("ips"), c.optString("notAfter"), c.optBoolean("covers", true), arr("missing"))
             }
             GatewayInfo(env, true, o.optBoolean("tls"), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" }, cert,
-                o.optString("bind"), o.optString("auth"), urls, pend, pair)
+                o.optString("bind"), o.optString("auth"), urls, pend, pair, port = o.optInt("port", 18789))
         } catch (e: Exception) {
             Log.w(TAG, "gateway status in $env: " + e.message); GatewayInfo(env, false, error = e.message)
         }
@@ -165,8 +168,30 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
             val text = (r.output ?: "").trim()
             if (!r.success || !text.startsWith("{")) return@withContext null
             val o = JSONObject(text)
-            PairCode(o.getString("url"), o.optLong("expiresAtMs", 0L), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" })
+            PairCode(o.getString("url"), o.optLong("expiresAtMs", 0L), o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" }, o.optString("iface", iface))
         } catch (e: Exception) { Log.w(TAG, "pair-code in $env: " + e.message); null }
+    }
+
+    /**
+     * A setup code for the OpenClaw app on this phone. The app reaches the gateway over loopback, so the code names
+     * 127.0.0.1 and keeps working when the Wi-Fi address changes. An env whose aohp-agents has no app-code verb yet
+     * is asked through openclaw directly.
+     */
+    suspend fun appCode(env: String, tls: Boolean, port: Int, fingerprint: String?): AppCode? = withContext(Dispatchers.IO) {
+        try {
+            val r = containers.execSync(env, "aohp-gateway app-code 2>/dev/null", 40_000)
+            val text = (r.output ?: "").trim()
+            if (r.success && text.startsWith("{")) {
+                val o = JSONObject(text)
+                return@withContext AppCode(o.getString("setupCode"), o.optString("url"), o.optLong("expiresAtMs", 0L),
+                    o.optString("fingerprint").takeIf { it.isNotEmpty() && it != "null" })
+            }
+            val url = (if (tls) "wss" else "ws") + "://127.0.0.1:" + port
+            val r2 = containers.execSync(env, "openclaw qr --setup-code-only --url $url 2>/dev/null | tail -1", 40_000)
+            val code = (r2.output ?: "").trim().lines().lastOrNull { it.isNotBlank() }?.trim() ?: ""
+            if (!Regex("^[A-Za-z0-9_-]{40,}$").matches(code)) return@withContext null
+            AppCode(code, url, System.currentTimeMillis() + 10 * 60_000L, if (tls) fingerprint else null)
+        } catch (e: Exception) { Log.w(TAG, "app-code in $env: " + e.message); null }
     }
 
     /** The shared gateway token, read from the env's keystore on demand; never stored by the Driver. */
@@ -177,7 +202,7 @@ class GatewayViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) { null }
     }
 
-    /** QR of a short text (a URL) as a bitmap; ZXing core, no Play Services. */
+    /** QR of a short text (a URL or a setup code) as a bitmap; ZXing core, no Play Services. */
     fun qr(text: String, size: Int = 640): Bitmap {
         val m = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size, mapOf(EncodeHintType.MARGIN to 1))
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)

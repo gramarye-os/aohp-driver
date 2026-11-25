@@ -4,6 +4,8 @@
 package org.aohp.driver.network
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,7 +47,8 @@ import org.aohp.driver.ui.KeyValue
  * Runtime-screen card: the OpenClaw gateway's network face per env — reachable URLs (text: they
  * are short), the TLS certificate it serves, "Pair a browser" (a QR of the URL carrying a
  * 10-minute bootstrap token in the fragment: scan on a laptop, it lands in the Control UI, then
- * appears here under "Waiting to pair" for Allow), the shared token on demand, pending pairing
+ * appears here under "Waiting to pair" for Allow), "Pair the OpenClaw app" (a setup code for the
+ * app on this phone, naming 127.0.0.1, to copy into the app), the shared token on demand, pending pairing
  * requests, and paired devices. Gateway auth runs before device pairing, so a browser needs the
  * token (or bootstrap token) first and the Allow tap second. See aohp-agents/bin/aohp-gateway.
  */
@@ -55,6 +58,8 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
     val scope = rememberCoroutineScope()
     var pairFor by remember { mutableStateOf<Pair<GatewayInfo, PairCode>?>(null) }
     var minting by remember { mutableStateOf(false) }
+    var appFor by remember { mutableStateOf<AppCode?>(null) }
+    var mintingApp by remember { mutableStateOf(false) }
     var tokenShown by remember { mutableStateOf<Pair<String, String>?>(null) }   // env -> token
     var removeAsk by remember { mutableStateOf<Pair<String, GatewayDevice>?>(null) }
     var certAsk by remember { mutableStateOf<GatewayInfo?>(null) }
@@ -111,6 +116,15 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         else scope.launch { val t = vm.token(g.env); if (t == null) onMessage("No token in the keystore") else tokenShown = g.env to t }
                     }) { Text(if (shown != null) "Hide token" else "Show token") }
                 }
+                // On its own row: three buttons overflow a phone width.
+                OutlinedButton(enabled = !mintingApp && st.busy == null, onClick = {
+                    mintingApp = true
+                    scope.launch {
+                        val ac = vm.appCode(g.env, g.tls, g.port, g.fingerprint)
+                        mintingApp = false
+                        if (ac == null) onMessage("Could not mint a setup code (is the gateway up?)") else appFor = ac
+                    }
+                }) { Text(if (mintingApp) "Minting…" else "Pair the OpenClaw app") }
                 if (g.pending.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
                     Text("Waiting to pair", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -189,10 +203,25 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
         AlertDialog(onDismissRequest = { pairFor = null },
             title = { Text("Pair a browser") },
             text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                    // Which address the link names: Wi-Fi changes with the network, the WireGuard tunnel does not.
+                    if (g.urls.size > 1) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        g.urls.forEach { u ->
+                            FilterChip(selected = u.iface == pc.iface, enabled = !minting, label = { Text(u.iface) }, onClick = {
+                                if (u.iface != pc.iface) {
+                                    minting = true
+                                    scope.launch {
+                                        val n = vm.pairCode(g.env, u.iface)
+                                        minting = false
+                                        if (n == null) onMessage("Could not mint a pairing code for " + u.iface) else pairFor = g to n
+                                    }
+                                }
+                            })
+                        }
+                    }
                     Image(bmp.asImageBitmap(), contentDescription = "pairing QR", modifier = Modifier.size(270.dp))
                     Spacer(Modifier.height(8.dp))
-                    Text("Scan with the laptop (same Wi-Fi). The link carries a one-time code valid for about " + minutes + " minutes; it admits whoever scans it, so keep the screen to yourself.", style = MaterialTheme.typography.bodySmall)
+                    Text("Scan with the laptop (" + reach(pc.iface) + "). The link carries a one-time code valid for about " + minutes + " minutes; it admits whoever scans it, so keep the screen to yourself.", style = MaterialTheme.typography.bodySmall)
                     pc.fingerprint?.let {
                         Spacer(Modifier.height(8.dp))
                         Text("The browser will warn about the certificate. Accept it only if its SHA-256 fingerprint is:", style = MaterialTheme.typography.bodySmall)
@@ -204,6 +233,51 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
             },
             confirmButton = { TextButton(onClick = { pairFor = null; vm.refresh() }) { Text("Done") } })
     }
+
+    appFor?.let { ac ->
+        val bmp = remember(ac.setupCode) { vm.qr(ac.setupCode) }
+        val minutes = ((ac.expiresAtMs - System.currentTimeMillis()) / 60_000L).coerceAtLeast(0L)
+        AlertDialog(onDismissRequest = { appFor = null },
+            title = { Text("Pair the OpenClaw app") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("A setup code for the OpenClaw app on this phone (" + ac.url + "). It is valid for about " + minutes + " minutes and admits whoever uses it.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap “Copy and open OpenClaw”. In the app go to Settings, Gateway, Add Gateway, Enter setup code (older app: Manual Gateway, Setup code), paste the code and connect.", style = MaterialTheme.typography.bodySmall)
+                    ac.fingerprint?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text("The app will ask to trust the gateway's certificate. Accept it only if its SHA-256 fingerprint is:", style = MaterialTheme.typography.bodySmall)
+                        Text(it, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Image(bmp.asImageBitmap(), contentDescription = "setup code QR", modifier = Modifier.size(220.dp))
+                    Text("The same code as a QR: a screenshot of it can be chosen in the app's scanner.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val clip = android.content.ClipData.newPlainText("OpenClaw setup code", ac.setupCode)
+                    // Sensitive: Android then hides it in the clipboard preview.
+                    clip.description.extras = android.os.PersistableBundle().apply { putBoolean(android.content.ClipDescription.EXTRA_IS_SENSITIVE, true) }
+                    ctx.getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(clip)
+                    val open = ctx.packageManager.getLaunchIntentForPackage(OPENCLAW_APP)
+                    appFor = null
+                    if (open == null) onMessage("Setup code copied. The OpenClaw app is not installed.")
+                    else ctx.startActivity(open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }) { Text("Copy and open OpenClaw") }
+            },
+            dismissButton = { TextButton(onClick = { appFor = null; vm.refresh() }) { Text("Close") } })
+    }
+}
+
+private const val OPENCLAW_APP = "ai.openclaw.app"
+
+/** Where a laptop has to be to open a link that names this interface's address. */
+private fun reach(iface: String): String = when (iface) {
+    "wlan0", "" -> "same Wi-Fi"
+    "wg0" -> "on the WireGuard tunnel"
+    "tailscale0" -> "on the tailnet"
+    else -> "on the " + iface + " network"
 }
 
 /** The Android device name (Settings > About > Device name) as a hostname: "OnePlus 13" -> oneplus13. The same name mDNS will advertise. */
