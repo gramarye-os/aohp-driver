@@ -48,7 +48,8 @@ import org.aohp.driver.ui.KeyValue
  * are short), the TLS certificate it serves, "Pair a browser" (a QR of the URL carrying a
  * 10-minute bootstrap token in the fragment: scan on a laptop, it lands in the Control UI, then
  * appears here under "Waiting to pair" for Allow), "Pair the OpenClaw app" (a setup code for the
- * app on this phone, naming 127.0.0.1, to copy into the app), the shared token on demand, pending pairing
+ * app on this phone, naming 127.0.0.1, to copy into the app; with gateway auth off there is no code to
+ * make, so it says how the app connects without one), the shared token on demand, pending pairing
  * requests, and paired devices. Gateway auth runs before device pairing, so a browser needs the
  * token (or bootstrap token) first and the Allow tap second. See aohp-agents/bin/aohp-gateway.
  */
@@ -60,6 +61,7 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
     var minting by remember { mutableStateOf(false) }
     var appFor by remember { mutableStateOf<AppCode?>(null) }
     var mintingApp by remember { mutableStateOf(false) }
+    var noAuthFor by remember { mutableStateOf<GatewayInfo?>(null) }   // "Pair the OpenClaw app" on a gateway with auth off
     var tokenShown by remember { mutableStateOf<Pair<String, String>?>(null) }   // env -> token
     var removeAsk by remember { mutableStateOf<Pair<String, GatewayDevice>?>(null) }
     var certAsk by remember { mutableStateOf<GatewayInfo?>(null) }
@@ -108,7 +110,7 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                         scope.launch {
                             val pc = vm.pairCode(g.env, g.urls.firstOrNull { it.iface == "wlan0" }?.iface ?: g.urls.firstOrNull()?.iface ?: "wlan0")
                             minting = false
-                            if (pc == null) onMessage("Could not mint a pairing code (is the gateway up?)") else pairFor = g to pc
+                            if (pc == null) onMessage(if (g.auth == "none") "No pairing code: this gateway has auth off" else "Could not mint a pairing code (is the gateway up?)") else pairFor = g to pc
                         }
                     }) { Text(if (minting) "Minting…" else "Pair a browser") }
                     OutlinedButton(onClick = {
@@ -118,6 +120,8 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 }
                 // On its own row: three buttons overflow a phone width.
                 OutlinedButton(enabled = !mintingApp && st.busy == null, onClick = {
+                    // openclaw makes a setup code only with token or password auth. With auth off the app needs none.
+                    if (g.auth == "none") { noAuthFor = g; return@OutlinedButton }
                     mintingApp = true
                     scope.launch {
                         val ac = vm.appCode(g.env, g.tls, g.port, g.fingerprint)
@@ -232,6 +236,27 @@ fun GatewayCard(onMessage: (String) -> Unit = {}, vm: GatewayViewModel = viewMod
                 }
             },
             confirmButton = { TextButton(onClick = { pairFor = null; vm.refresh() }) { Text("Done") } })
+    }
+
+    noAuthFor?.let { g ->
+        AlertDialog(onDismissRequest = { noAuthFor = null },
+            title = { Text("Pair the OpenClaw app") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("No pairing needed: this gateway has auth off, so the OpenClaw app on this phone connects without a setup code.", style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("If the app is not connected yet: in the app go to Settings, Gateway, Manual Gateway. Host 127.0.0.1, Port " + g.port + ", Connection security " + (if (g.tls) "Secure (TLS)" else "Unencrypted") + ", Token and Password empty, then Save & Connect.", style = MaterialTheme.typography.bodySmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val open = ctx.packageManager.getLaunchIntentForPackage(OPENCLAW_APP)
+                    noAuthFor = null
+                    if (open == null) onMessage("The OpenClaw app is not installed.")
+                    else ctx.startActivity(open.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }) { Text("Open OpenClaw") }
+            },
+            dismissButton = { TextButton(onClick = { noAuthFor = null }) { Text("Close") } })
     }
 
     appFor?.let { ac ->
